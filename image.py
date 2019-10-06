@@ -10,7 +10,7 @@ from utils import FileParam, RelFileParam, CorrectedImageParams, LocalTiff, Loca
 
 class Image(FileParam, luigi.ExternalTask):
     def output(self):
-        return LocalTiff(self.path)
+        return LocalTiff(self.path, protected=True)
 
 
 class MaskedImage(FileParam, luigi.WrapperTask):
@@ -83,7 +83,7 @@ class Shift(FileParam, RelFileParam, luigi.Task):
 
 class G_Factor(FileParam, luigi.ExternalTask):
     def output(self):
-        return LocalTiff(self.path)
+        return LocalTiff(self.path, protected=True)
 
 
 class Metadata(FileParam, luigi.Task):

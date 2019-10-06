@@ -2,6 +2,7 @@ import luigi
 
 from anisotropy import Intensity
 from files import df
+from utils import invalidate_downstream
 
 
 class RunAll(luigi.WrapperTask):
@@ -17,5 +18,9 @@ class RunAll(luigi.WrapperTask):
 
 
 if __name__ == '__main__':
-    result = luigi.build([RunAll()], local_scheduler=False, detailed_summary=True)
+    tasks_to_invalidate = (None,)
+    tasks = [RunAll()]
+    invalidate_downstream(tasks, tasks_to_invalidate)
+
+    result = luigi.build(tasks, local_scheduler=False, detailed_summary=True)
     print(result.summary_text)
