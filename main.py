@@ -23,8 +23,8 @@ class RunAll(luigi.WrapperTask):
             for d in dg.itertuples():
                 yield Intensity(path=d.file,
                                 rel_path=d_ref.file,
-                                g_factor_path=d.g_factor,
-                                g_factor_rel_path=d_ref.g_factor)
+                                normalization_path=d.normalization,
+                                normalization_rel_path=d_ref.normalization)
 
 
 if __name__ == '__main__':

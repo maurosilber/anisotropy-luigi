@@ -81,7 +81,7 @@ class Shift(FileParam, RelFileParam, luigi.Task):
             self.output().save((0., 0.))
 
 
-class G_Factor(FileParam, luigi.ExternalTask):
+class Normalization(FileParam, luigi.ExternalTask):
     def output(self):
         return LocalTiff(self.path, protected=True)
 
@@ -91,7 +91,7 @@ class Metadata(FileParam, luigi.Task):
         return Image(path=self.path)
 
     def output(self):
-        return luigi.LocalTarget(self.results_file('.exposure.txt'))
+        return luigi.LocalTarget(self.results_file('.metadata.json'))
 
     def run(self):
         with self.input().open() as tif:
@@ -128,31 +128,31 @@ class CorrectedImage(CorrectedImageParams, luigi.WrapperTask):
     def requires(self):
         return {'background': Background(path=self.path),
                 'shift': Shift(path=self.path, rel_path=self.rel_path),
-                'g_factor': G_Factor(path=self.g_factor_path),
+                'normalization': Normalization(path=self.normalization_path),
                 'image_metadata': Metadata(path=self.path),
-                'g_factor_metadata': Metadata(path=self.g_factor_path)}
+                'normalization_metadata': Metadata(path=self.normalization_path)}
 
     def __enter__(self):
         self.ims = self.subtasks().open()
         self.bg = self.input()['background'].open()
         self.shift = self.input()['shift'].open()
         self.axis = tuple(range(-len(self.shift), 0))
-        self.g_factor = self.input()['g_factor'].open()
+        self.normalization = self.input()['normalization'].open()
         with self.input()['image_metadata'].open() as f:
             self.image_exposure = float(json.load(f)['ExposureTime1'])
-        with self.input()['g_factor_metadata'].open() as f:
-            self.g_factor_exposure = float(json.load(f)['ExposureTime'])
+        with self.input()['normalization_metadata'].open() as f:
+            self.normalization_exposure = float(json.load(f)['ExposureTime'])
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.ims.close()
-        self.g_factor.close()
+        self.normalization.close()
 
     def corrected_image(self, item):
         im = self.ims.masked_image(item) / self.image_exposure
         bg = self.bg[item] / self.image_exposure
-        g_factor = self.g_factor.asarray() / self.g_factor_exposure
-        return np.roll((im - bg) / (g_factor - bg), self.shift, axis=self.axis)
+        normalization = self.normalization.asarray() / self.normalization_exposure
+        return np.roll((im - bg) / (normalization - bg), self.shift, axis=self.axis)
 
     def corrected_images(self):
         for i in range(len(self.ims.tif)):
@@ -172,7 +172,7 @@ class CorrectedBackground(CorrectedImageParams, luigi.Task):
     def subtasks(self):
         return CorrectedImage(path=self.path,
                               rel_path=self.rel_path,
-                              g_factor_path=self.g_factor_path)
+                              normalization_path=self.normalization_path)
 
     def output(self):
         return LocalNpz(self.results_file('.corrected_bg_rv.npz'))

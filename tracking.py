@@ -13,7 +13,7 @@ class TrackedLabels(CorrectedImageParams, luigi.Task):
     def requires(self):
         return Labels(path=self.rel_path,
                       rel_path=self.rel_path,
-                      g_factor_path=self.g_factor_path)
+                      normalization_path=self.normalization_path)
 
     def output(self):
         return LocalNpy(self.results_file('.tracked_labels.npy'))

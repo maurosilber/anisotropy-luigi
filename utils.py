@@ -77,11 +77,11 @@ class RelFileParam(luigi.Config):
 
 
 class CorrectedImageParams(FileParam, RelFileParam):
-    g_factor_path = luigi.Parameter()
+    normalization_path = luigi.Parameter()
 
 
 class CorrectedPairParams(CorrectedImageParams):
-    g_factor_rel_path = luigi.Parameter()
+    normalization_rel_path = luigi.Parameter()
 
 
 class LocalTiff(LocalTarget):

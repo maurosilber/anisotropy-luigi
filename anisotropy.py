@@ -13,12 +13,12 @@ class Intensity(CorrectedPairParams, luigi.Task):
     def subtasks(self):
         return CorrectedImage(path=self.path,
                               rel_path=self.rel_path,
-                              g_factor_path=self.g_factor_path)
+                              normalization_path=self.normalization_path)
 
     def requires(self):
         return TrackedLabels(path=self.rel_path,
                              rel_path=self.rel_path,
-                             g_factor_path=self.g_factor_rel_path)
+                             normalization_path=self.normalization_rel_path)
 
     def output(self):
         return LocalNpz(self.results_file('.intensity.npz'))

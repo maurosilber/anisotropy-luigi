@@ -17,13 +17,13 @@ class Labels(CorrectedImageParams, luigi.Task):
     def subtasks(self):
         params = {'path': self.rel_path,
                   'rel_path': self.rel_path,
-                  'g_factor_path': self.g_factor_path}
+                  'normalization_path': self.normalization_path}
         return {'image': CorrectedImage(**params)}
 
     def requires(self):
         params = {'path': self.rel_path,
                   'rel_path': self.rel_path,
-                  'g_factor_path': self.g_factor_path}
+                  'normalization_path': self.normalization_path}
         return {'background': CorrectedBackground(**params)}
 
     def output(self):
