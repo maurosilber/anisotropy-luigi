@@ -1,12 +1,22 @@
 import luigi
 
 from anisotropy import Intensity
-from files import df
+from files import Files
 from utils import invalidate_downstream
 
 
 class RunAll(luigi.WrapperTask):
     def requires(self):
+        # Manual handling of task
+        files = Files()
+        if not files.complete():
+            files.run()
+        df = files.output().open()
+
+        # Filter
+        df = df.query('position == 18')
+
+        # Yielding all tasks
         for (date, position), dg in df.groupby(['date', 'position']):
             dg = dg.set_index(['fp', 'polarization'])
             d_ref = dg.loc['Cit', 'parallel']
@@ -18,9 +28,9 @@ class RunAll(luigi.WrapperTask):
 
 
 if __name__ == '__main__':
-    tasks_to_invalidate = (None,)
+    tasks_to_invalidate = []
     tasks = [RunAll()]
     invalidate_downstream(tasks, tasks_to_invalidate)
 
-    result = luigi.build(tasks, local_scheduler=False, detailed_summary=True)
+    result = luigi.build(tasks, workers=1, local_scheduler=False, detailed_summary=True)
     print(result.summary_text)

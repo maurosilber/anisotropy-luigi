@@ -18,7 +18,7 @@ class MaskedImage(FileParam, luigi.WrapperTask):
     tif = None
 
     def requires(self):
-        return Image(self.path)
+        return Image(path=self.path)
 
     def open(self):
         self.tif = self.input().open()
@@ -49,10 +49,10 @@ class Background(FileParam, luigi.Task):
     threshold = luigi.FloatParameter()
 
     def subtasks(self):
-        return MaskedImage(self.path)
+        return MaskedImage(path=self.path)
 
     def output(self):
-        return LocalNpy(self.path.with_suffix('.bg.npy'))
+        return LocalNpy(self.results_file('.bg.npy'))
 
     def run(self):
         with self.subtasks() as ims:
@@ -67,10 +67,10 @@ class Background(FileParam, luigi.Task):
 class Shift(FileParam, RelFileParam, luigi.Task):
     # Do we want a corrected image to compute shift?
     def subtasks(self):
-        return MaskedImage(self.path), MaskedImage(self.rel_path)
+        return MaskedImage(path=self.path), MaskedImage(path=self.rel_path)
 
     def output(self):
-        return LocalNpy(self.path.with_suffix('.shift.npy'))
+        return LocalNpy(self.results_file('.shift.npy'))
 
     def run(self):
         ims, rel_ims = self.subtasks()
@@ -88,10 +88,10 @@ class G_Factor(FileParam, luigi.ExternalTask):
 
 class Metadata(FileParam, luigi.Task):
     def requires(self):
-        return Image(self.path)
+        return Image(path=self.path)
 
     def output(self):
-        return luigi.LocalTarget(self.path.with_suffix('.exposure.txt'))
+        return luigi.LocalTarget(self.results_file('.exposure.txt'))
 
     def run(self):
         with self.input().open() as tif:
@@ -123,14 +123,14 @@ class Metadata(FileParam, luigi.Task):
 @delegates
 class CorrectedImage(CorrectedImageParams, luigi.WrapperTask):
     def subtasks(self):
-        return MaskedImage(self.path)
+        return MaskedImage(path=self.path)
 
     def requires(self):
-        return {'background': Background(self.path),
-                'shift': Shift(self.path, self.rel_path),
-                'g_factor': G_Factor(self.g_factor_path),
-                'image_metadata': Metadata(self.path),
-                'g_factor_metadata': Metadata(self.g_factor_path)}
+        return {'background': Background(path=self.path),
+                'shift': Shift(path=self.path, rel_path=self.rel_path),
+                'g_factor': G_Factor(path=self.g_factor_path),
+                'image_metadata': Metadata(path=self.path),
+                'g_factor_metadata': Metadata(path=self.g_factor_path)}
 
     def __enter__(self):
         self.ims = self.subtasks().open()
@@ -175,7 +175,7 @@ class CorrectedBackground(CorrectedImageParams, luigi.Task):
                               g_factor_path=self.g_factor_path)
 
     def output(self):
-        return LocalNpz(self.path.with_suffix('.corrected_bg_rv.npz'))
+        return LocalNpz(self.results_file('.corrected_bg_rv.npz'))
 
     def run(self):
         with self.subtasks() as ims:

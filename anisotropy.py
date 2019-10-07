@@ -21,7 +21,7 @@ class Intensity(CorrectedPairParams, luigi.Task):
                              g_factor_path=self.g_factor_rel_path)
 
     def output(self):
-        return LocalNpz(self.path.with_suffix('.intensity.npz'))
+        return LocalNpz(self.results_file('.intensity.npz'))
 
     def run(self):
         tracked_labels = self.input().open()

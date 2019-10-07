@@ -27,7 +27,7 @@ class Labels(CorrectedImageParams, luigi.Task):
         return {'background': CorrectedBackground(**params)}
 
     def output(self):
-        return LocalNpy(self.rel_path.with_suffix('.labels.npy'))
+        return LocalNpy(self.results_file('.labels.npy'))
 
     def run(self):
         with self.subtasks()['image'] as ims, self.input()['background'] as bg_rvs:

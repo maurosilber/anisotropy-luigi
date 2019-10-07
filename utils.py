@@ -2,6 +2,7 @@ import pathlib
 
 import luigi
 import numpy as np
+import pandas as pd
 from luigi.task import flatten
 from luigi.tools import deps
 from skimage.external.tifffile import TiffFile
@@ -42,8 +43,33 @@ class LocalTarget(luigi.LocalTarget):
             pathlib.Path(self.path).unlink()
 
 
-class FileParam(luigi.Config):
+def set_default_from_config(cls):
+    params = cls.get_params()
+    for param_name, param_value in params:
+        default = param_value._get_value_from_config(cls.__name__, param_name)
+        param_value._default = default
+    return cls
+
+
+@set_default_from_config
+class DirectoryParams(luigi.Config):
+    data_path = luigi.Parameter(description='Path to base data folder.')
+    results_path = luigi.Parameter(description='Path to base result folder.')
+
+
+class FileParam(DirectoryParams):
     path = luigi.Parameter(description='Path to image.')
+
+    def results_file(self, extension):
+        return self.relative_path(self.path, self.data_path, self.results_path).with_suffix(extension)
+
+    @staticmethod
+    def relative_path(file, root, new_root):
+        file = pathlib.Path(file)
+        root = pathlib.Path(root)
+        new_root = pathlib.Path(new_root)
+        new_file = new_root / '/'.join(file.parts[len(root.parts):])
+        return new_file
 
 
 class RelFileParam(luigi.Config):
@@ -105,3 +131,11 @@ class LocalNpz(LocalTarget):
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.npz.close()
+
+
+class LocalPandas(LocalTarget):
+    def open(self):
+        return pd.read_pickle(self.path)
+
+    def save(self, df):
+        pd.to_pickle(df, self.path)
