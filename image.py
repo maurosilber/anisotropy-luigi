@@ -8,12 +8,12 @@ from luigi.util import delegates
 from utils import FileParam, RelFileParam, CorrectedImageParams, LocalTiff, LocalNpy, LocalNpz
 
 
-class Image(FileParam, luigi.ExternalTask):
+class Image(luigi.ExternalTask, FileParam):
     def output(self):
         return LocalTiff(self.path, protected=True)
 
 
-class MaskedImage(FileParam, luigi.WrapperTask):
+class MaskedImage(luigi.WrapperTask, FileParam):
     """Image with saturated areas masked.
 
     Implements methods to iterate through the masked images.
@@ -86,7 +86,7 @@ class Shift(FileParam, RelFileParam, luigi.Task):
             self.output().save((0., 0.))
 
 
-class Normalization(FileParam, luigi.ExternalTask):
+class Normalization(luigi.ExternalTask, FileParam):
     def output(self):
         return LocalTiff(self.path, protected=True)
 
@@ -128,7 +128,7 @@ class Metadata(FileParam, luigi.Task):
 
 
 @delegates
-class CorrectedImage(CorrectedImageParams, luigi.WrapperTask):
+class CorrectedImage(luigi.WrapperTask, CorrectedImageParams):
     """Calculates a corrected image.
 
     Implements methods to use as a subtask.
