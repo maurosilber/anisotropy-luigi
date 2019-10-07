@@ -31,6 +31,8 @@ normalizations = {'20181024': {'parallel': 'normalizations/parallel_fluorescein_
 
 
 class Files(DirectoryParams, luigi.Task):
+    """Generates a Pandas DataFrame with image file paths and associated metadata such as date, position, etc."""
+
     def output(self):
         return LocalPandas(pathlib.Path(self.results_path) / 'files.pandas')
 

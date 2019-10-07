@@ -10,6 +10,7 @@ from utils import CorrectedImageParams, LocalNpy
 
 @delegates
 class Labels(CorrectedImageParams, luigi.Task):
+    """Segmentation of image."""
     bg_threshold = luigi.FloatParameter()
     binary_opening_size = luigi.IntParameter()
     remove_small_objects = luigi.IntParameter()
@@ -34,7 +35,7 @@ class Labels(CorrectedImageParams, luigi.Task):
             labels = np.empty(ims.shape, dtype=int)
             max_label = 0
             for i, im in enumerate(ims.corrected_images()):
-                bg_rv = background.HistogramRV(bg_rvs[str(i)])
+                bg_rv = background.HistogramRV(bg_rvs[str(i)])  # loads background distribution
                 mask = (im.data > bg_rv.ppf(self.bg_threshold))  # using underlying image data without mask
                 mask = morphology.binary_opening(mask, morphology.disk(self.binary_opening_size))
                 label, max_label_i = morphology.label(mask, return_num=True)

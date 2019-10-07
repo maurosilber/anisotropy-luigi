@@ -14,12 +14,17 @@ class Image(FileParam, luigi.ExternalTask):
 
 
 class MaskedImage(FileParam, luigi.WrapperTask):
+    """Image with saturated areas masked.
+
+    Implements methods to iterate through the masked images.
+    """
     saturation = luigi.IntParameter()
     tif = None
 
     def requires(self):
         return Image(path=self.path)
 
+    # Methods to use when calling as a subtask
     def open(self):
         self.tif = self.input().open()
         return self
@@ -87,6 +92,8 @@ class Normalization(FileParam, luigi.ExternalTask):
 
 
 class Metadata(FileParam, luigi.Task):
+    """Extracts metadata from file and saves as json."""
+
     def requires(self):
         return Image(path=self.path)
 
@@ -122,6 +129,11 @@ class Metadata(FileParam, luigi.Task):
 
 @delegates
 class CorrectedImage(CorrectedImageParams, luigi.WrapperTask):
+    """Calculates a corrected image.
+
+    Implements methods to use as a subtask.
+    """
+
     def subtasks(self):
         return MaskedImage(path=self.path)
 
@@ -165,6 +177,7 @@ class CorrectedImage(CorrectedImageParams, luigi.WrapperTask):
 
 @delegates
 class CorrectedBackground(CorrectedImageParams, luigi.Task):
+    """Calculates the background distribution from a corrected image."""
     sigma = luigi.FloatParameter()
     window = luigi.IntParameter()
     threshold = luigi.FloatParameter()

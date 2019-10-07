@@ -10,6 +10,8 @@ from utils import CorrectedPairParams, LocalNpz
 
 @delegates
 class Intensity(CorrectedPairParams, luigi.Task):
+    """Calulates total intensity per cell."""
+
     def subtasks(self):
         return CorrectedImage(path=self.path,
                               rel_path=self.rel_path,
