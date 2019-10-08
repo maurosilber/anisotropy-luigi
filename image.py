@@ -153,7 +153,9 @@ class CorrectedImage(luigi.WrapperTask, CorrectedImageParams):
         with self.input()['image_metadata'].open() as f:
             self.image_exposure = float(json.load(f)['ExposureTime1'])
         with self.input()['normalization_metadata'].open() as f:
-            self.normalization_exposure = float(json.load(f)['ExposureTime'])
+            normalization_metadata = json.load(f)
+            self.normalization_exposure = float(normalization_metadata['ExposureTime'])
+            self.normalization_background = float(normalization_metadata['Background'])
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -163,8 +165,8 @@ class CorrectedImage(luigi.WrapperTask, CorrectedImageParams):
     def corrected_image(self, item):
         im = self.ims.masked_image(item) / self.image_exposure
         bg = self.bg[item] / self.image_exposure
-        normalization = self.normalization.asarray() / self.normalization_exposure
-        return np.roll((im - bg) / (normalization - bg), self.shift, axis=self.axis)
+        normalization = (self.normalization.asarray() - self.normalization_background) / self.normalization_exposure
+        return np.roll((im - bg) / normalization, self.shift, axis=self.axis)
 
     def corrected_images(self):
         for i in range(len(self.ims.tif)):
