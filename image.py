@@ -47,7 +47,7 @@ class MaskedImage(luigi.WrapperTask, FileParam):
         return np.ma.masked_greater_equal(self.ims.image(item), self.saturation)
 
     def masked_images(self):
-        for i in range(len(self.ims)):
+        for i in range(len(self)):
             yield self.masked_image(i)
 
     def __len__(self):
@@ -72,7 +72,7 @@ class Background(FileParam, luigi.Task):
 
     def run(self):
         with self.subtasks() as ims:
-            bg = np.empty(len(ims.tif))
+            bg = np.empty(len(ims))
             for i, im in enumerate(ims.masked_images()):
                 bg_rv = background.bg_rv(im, self.sigma, self.window, threshold=self.threshold)
                 bg[i] = bg_rv.median()
@@ -84,7 +84,9 @@ class Shift(ExperimentParam, ChannelParams, RelativeChannelParams, luigi.Task):
         return Files()
 
     def output(self):
-        return LocalNpy(self.to_experiment_path('shift.npy'))
+        return LocalNpy(self.to_experiment_path((f'{self.fluorophore}_{self.polarization}_wrt_'
+                                                 f'{self.relative_fluorophore}_{self.relative_polarization}'
+                                                 f'.shift.npy')))
 
     def run(self):
         if (self.fluorophore == self.relative_fluorophore) and (self.polarization == self.relative_polarization):
@@ -97,11 +99,10 @@ class Shift(ExperimentParam, ChannelParams, RelativeChannelParams, luigi.Task):
                 dg = dg.set_index(['fluorophore', 'polarization'])
                 d = dg.loc[self.fluorophore, self.polarization]
                 d_ref = dg.loc[self.relative_fluorophore, self.relative_polarization]
-                with Image(path=d.file).output() as ims:
-                    with Image(path=d_ref.file).output() as rel_ims:
-                        for im, rel_im in zip(ims.images(), rel_ims.images()):
-                            shift = feature.register_translation(im, rel_im, 100)[0]
-                            shifts.append(shift)
+                with Image(path=d.file).output() as ims, Image(path=d_ref.file).output() as rel_ims:
+                    for im, rel_im in zip(ims.images(), rel_ims.images()):
+                        shift = feature.register_translation(im, rel_im, 100)[0]
+                        shifts.append(shift)
             shifts = np.median(shifts, axis=0)
             self.output().save(shifts)
 
@@ -191,8 +192,11 @@ class CorrectedImage(luigi.WrapperTask, CorrectedImageParams):
         return np.roll((im - bg) / normalization, shift, axis=self.axis)
 
     def corrected_images(self):
-        for i in range(len(self.ims)):
+        for i in range(len(self)):
             yield self.corrected_image(i)
+
+    def __len__(self):
+        return len(self.ims)
 
     @property
     def shape(self):
