@@ -4,7 +4,8 @@ import luigi
 import pandas as pd
 import parse
 
-from utils import DirectoryParams, LocalPandas
+from parameters import DirectoryParams
+from utils import LocalPandas
 
 martin_to_agus = {'CFP405': 'BFP_parallel',
                   'CFP4052': 'BFP_perpendicular',
@@ -50,11 +51,13 @@ class Files(DirectoryParams, luigi.Task):
                 position, rest = parsed
                 if rest in martin_to_agus:
                     rest = martin_to_agus[rest]
-                fp, polarization = parse.parse('{}_{}', rest)
+                fluorophore, polarization = parse.parse('{}_{}', rest)
 
             date = file.parent.stem
+            experiment_path = file.parent
             normalization_file = results_path / normalizations[date][polarization]
-            df.append((date, position, fp, polarization, file, normalization_file))
+            df.append((date, position, fluorophore, polarization, experiment_path, file, normalization_file))
 
-        df = pd.DataFrame(data=df, columns=('date', 'position', 'fp', 'polarization', 'file', 'normalization'))
+        columns = ('date', 'position', 'fluorophore', 'polarization', 'experiment_path', 'file', 'normalization')
+        df = pd.DataFrame(data=df, columns=columns)
         self.output().save(df)

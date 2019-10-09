@@ -15,18 +15,21 @@ class RunAll(luigi.WrapperTask):
             files.run()
         df = files.output().open()
 
-        # Filter
-        df = df.query('position == 12')
-
         # Yielding all tasks
         for (date, position), dg in df.groupby(['date', 'position']):
-            dg = dg.set_index(['fp', 'polarization'])
+            dg = dg.set_index(['fluorophore', 'polarization'], drop=False)
             d_ref = dg.loc['Cit', 'parallel']
+            relative_params = {'relative_path': d_ref.file,
+                               'relative_fluorophore': d_ref.fluorophore,
+                               'relative_polarization': d_ref.polarization,
+                               'relative_normalization_path': d_ref.normalization}
             for d in dg.itertuples():
                 yield Intensity(path=d.file,
-                                rel_path=d_ref.file,
+                                experiment_path=d.experiment_path,
+                                fluorophore=d.fluorophore,
+                                polarization=d.polarization,
                                 normalization_path=d.normalization,
-                                normalization_rel_path=d_ref.normalization)
+                                **relative_params)
 
 
 if __name__ == '__main__':

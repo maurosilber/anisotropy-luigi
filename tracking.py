@@ -4,7 +4,7 @@ import luigi
 import numpy as np
 from cellment import tracking
 
-from image import CorrectedImageParams
+from parameters import CorrectedImageParams
 from segmentation import Labels
 from utils import LocalNpy
 
@@ -13,12 +13,10 @@ class TrackedLabels(CorrectedImageParams, luigi.Task):
     """Tracks cells and generates a new label mask."""
 
     def requires(self):
-        return Labels(path=self.rel_path,
-                      rel_path=self.rel_path,
-                      normalization_path=self.normalization_path)
+        return Labels(**self.corrected_image_params)
 
     def output(self):
-        return LocalNpy(self.results_file('.tracked_labels.npy'))
+        return LocalNpy(self.to_results_file('.tracked_labels.npy'))
 
     def run(self):
         labels = self.input().open()  # Loads labeled segmentation

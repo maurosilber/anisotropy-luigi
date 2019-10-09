@@ -5,7 +5,8 @@ from luigi.util import delegates
 from skimage import morphology
 
 from image import CorrectedImage, CorrectedBackground
-from utils import CorrectedImageParams, LocalNpy
+from parameters import CorrectedImageParams
+from utils import LocalNpy
 
 
 @delegates
@@ -16,19 +17,13 @@ class Labels(CorrectedImageParams, luigi.Task):
     remove_small_objects = luigi.IntParameter()
 
     def subtasks(self):
-        params = {'path': self.rel_path,
-                  'rel_path': self.rel_path,
-                  'normalization_path': self.normalization_path}
-        return {'image': CorrectedImage(**params)}
+        return {'image': CorrectedImage(**self.corrected_image_params)}
 
     def requires(self):
-        params = {'path': self.rel_path,
-                  'rel_path': self.rel_path,
-                  'normalization_path': self.normalization_path}
-        return {'background': CorrectedBackground(**params)}
+        return {'background': CorrectedBackground(**self.corrected_image_params)}
 
     def output(self):
-        return LocalNpy(self.results_file('.labels.npy'))
+        return LocalNpy(self.to_results_file('.labels.npy'))
 
     def run(self):
         with self.subtasks()['image'] as ims, self.input()['background'] as bg_rvs:

@@ -4,8 +4,12 @@ import luigi
 import numpy as np
 from cellment import background
 from luigi.util import delegates
+from skimage import feature
 
-from utils import FileParam, RelFileParam, CorrectedImageParams, LocalTiff, LocalNpy, LocalNpz
+from files import Files
+from parameters import FileParam, ExperimentParam, ChannelParams, RelativeChannelParams, \
+    CorrectedImageParams
+from utils import LocalTiff, LocalNpy, LocalNpz
 
 
 class Image(luigi.ExternalTask, FileParam):
@@ -19,19 +23,19 @@ class MaskedImage(luigi.WrapperTask, FileParam):
     Implements methods to iterate through the masked images.
     """
     saturation = luigi.IntParameter()
-    tif = None
+    ims = None
 
     def requires(self):
         return Image(path=self.path)
 
     # Methods to use when calling as a subtask
     def open(self):
-        self.tif = self.input().open()
+        self.ims = self.input().open()
         return self
 
     def close(self):
-        if self.tif is not None:
-            self.tif.close()
+        if self.ims is not None:
+            self.ims.close()
 
     def __enter__(self):
         return self.open()
@@ -40,11 +44,18 @@ class MaskedImage(luigi.WrapperTask, FileParam):
         self.close()
 
     def masked_image(self, item):
-        return np.ma.masked_greater_equal(self.tif.asarray(item), self.saturation)
+        return np.ma.masked_greater_equal(self.ims.image(item), self.saturation)
 
     def masked_images(self):
-        for i in range(len(self.tif)):
+        for i in range(len(self.ims)):
             yield self.masked_image(i)
+
+    def __len__(self):
+        return len(self.ims)
+
+    @property
+    def shape(self):
+        return self.ims.shape
 
 
 @delegates
@@ -57,7 +68,7 @@ class Background(FileParam, luigi.Task):
         return MaskedImage(path=self.path)
 
     def output(self):
-        return LocalNpy(self.results_file('.bg.npy'))
+        return LocalNpy(self.to_results_file('.bg.npy'))
 
     def run(self):
         with self.subtasks() as ims:
@@ -68,22 +79,31 @@ class Background(FileParam, luigi.Task):
         self.output().save(bg)
 
 
-@delegates
-class Shift(FileParam, RelFileParam, luigi.Task):
-    # Do we want a corrected image to compute shift?
-    def subtasks(self):
-        return MaskedImage(path=self.path), MaskedImage(path=self.rel_path)
+class Shift(ExperimentParam, ChannelParams, RelativeChannelParams, luigi.Task):
+    def requires(self):
+        return Files()
 
     def output(self):
-        return LocalNpy(self.results_file('.shift.npy'))
+        return LocalNpy(self.to_experiment_path('shift.npy'))
 
     def run(self):
-        ims, rel_ims = self.subtasks()
-        if ims.path == rel_ims.path:
+        if (self.fluorophore == self.relative_fluorophore) and (self.polarization == self.relative_polarization):
             self.output().save((0., 0.))
         else:
-            # TODO: compute shift
-            self.output().save((0., 0.))
+            df = self.input().open()
+            df = df[df['experiment_path'] == self.experiment_path]
+            shifts = []
+            for _, dg in df.groupby('position'):
+                dg = dg.set_index(['fluorophore', 'polarization'])
+                d = dg.loc[self.fluorophore, self.polarization]
+                d_ref = dg.loc[self.relative_fluorophore, self.relative_polarization]
+                with Image(path=d.file).output() as ims:
+                    with Image(path=d_ref.file).output() as rel_ims:
+                        for im, rel_im in zip(ims.images(), rel_ims.images()):
+                            shift = feature.register_translation(im, rel_im, 100)[0]
+                            shifts.append(shift)
+            shifts = np.median(shifts, axis=0)
+            self.output().save(shifts)
 
 
 class Normalization(luigi.ExternalTask, FileParam):
@@ -98,11 +118,10 @@ class Metadata(FileParam, luigi.Task):
         return Image(path=self.path)
 
     def output(self):
-        return luigi.LocalTarget(self.results_file('.metadata.json'))
+        return luigi.LocalTarget(self.to_results_file('.metadata.json'))
 
     def run(self):
-        with self.input().open() as tif:
-            metadata = self.parse_metadata(self.path)
+        metadata = self.parse_metadata(self.path)
         with self.output().open('w') as f:
             json.dump(metadata, f, indent=0)
 
@@ -131,7 +150,7 @@ class Metadata(FileParam, luigi.Task):
 class CorrectedImage(luigi.WrapperTask, CorrectedImageParams):
     """Calculates a corrected image.
 
-    Implements methods to use as a subtask.
+    Implements methods to get a corrected image when using as a subtask.
     """
 
     def subtasks(self):
@@ -139,7 +158,9 @@ class CorrectedImage(luigi.WrapperTask, CorrectedImageParams):
 
     def requires(self):
         return {'background': Background(path=self.path),
-                'shift': Shift(path=self.path, rel_path=self.rel_path),
+                'shift': Shift(experiment_path=self.experiment_path,
+                               fluorophore=self.fluorophore,
+                               polarization=self.polarization),
                 'normalization': Normalization(path=self.normalization_path),
                 'image_metadata': Metadata(path=self.path),
                 'normalization_metadata': Metadata(path=self.normalization_path)}
@@ -165,16 +186,17 @@ class CorrectedImage(luigi.WrapperTask, CorrectedImageParams):
     def corrected_image(self, item):
         im = self.ims.masked_image(item) / self.image_exposure
         bg = self.bg[item] / self.image_exposure
-        normalization = (self.normalization.asarray() - self.normalization_background) / self.normalization_exposure
-        return np.roll((im - bg) / normalization, self.shift, axis=self.axis)
+        normalization = (self.normalization.image() - self.normalization_background) / self.normalization_exposure
+        shift = self.shift.astype(int)
+        return np.roll((im - bg) / normalization, shift, axis=self.axis)
 
     def corrected_images(self):
-        for i in range(len(self.ims.tif)):
+        for i in range(len(self.ims)):
             yield self.corrected_image(i)
 
     @property
     def shape(self):
-        return (len(self.ims.tif), *self.ims.tif[0].shape)
+        return self.ims.shape
 
 
 @delegates
@@ -185,12 +207,10 @@ class CorrectedBackground(CorrectedImageParams, luigi.Task):
     threshold = luigi.FloatParameter()
 
     def subtasks(self):
-        return CorrectedImage(path=self.path,
-                              rel_path=self.rel_path,
-                              normalization_path=self.normalization_path)
+        return CorrectedImage(**self.corrected_image_params)
 
     def output(self):
-        return LocalNpz(self.results_file('.corrected_bg_rv.npz'))
+        return LocalNpz(self.to_results_file('.corrected_bg_rv.npz'))
 
     def run(self):
         with self.subtasks() as ims:

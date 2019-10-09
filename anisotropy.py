@@ -4,26 +4,23 @@ from luigi.util import delegates
 from scipy import ndimage
 
 from image import CorrectedImage
+from parameters import CorrectedPairParams
 from tracking import TrackedLabels
-from utils import CorrectedPairParams, LocalNpz
+from utils import LocalNpz
 
 
 @delegates
 class Intensity(CorrectedPairParams, luigi.Task):
-    """Calulates total intensity per cell."""
+    """Calculates total intensity per cell."""
 
     def subtasks(self):
-        return CorrectedImage(path=self.path,
-                              rel_path=self.rel_path,
-                              normalization_path=self.normalization_path)
+        return CorrectedImage(**self.corrected_image_params)
 
     def requires(self):
-        return TrackedLabels(path=self.rel_path,
-                             rel_path=self.rel_path,
-                             normalization_path=self.normalization_rel_path)
+        return TrackedLabels(**self.corrected_relative_image_params)
 
     def output(self):
-        return LocalNpz(self.results_file('.intensity.npz'))
+        return LocalNpz(self.to_results_file('.intensity.npz'))
 
     def run(self):
         tracked_labels = self.input().open()
