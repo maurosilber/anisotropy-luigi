@@ -31,8 +31,15 @@ class PathParameter(luigi.Parameter):
         return pathlib.Path(x)
 
 
+class DictConstructor(luigi.Config):
+    @classmethod
+    def from_dict(cls, d):
+        kwargs = {name: d[name] for name in cls.get_param_names() if name in d}
+        return cls(**kwargs)
+
+
 @set_default_from_config
-class DirectoryParams(luigi.Config):
+class DirectoryParams(DictConstructor):
     data_path = PathParameter(description='Path to base data folder.', significant=False)
     results_path = PathParameter(description='Path to base result folder.')
 
