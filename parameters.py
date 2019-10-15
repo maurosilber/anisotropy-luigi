@@ -26,10 +26,15 @@ def set_default_from_config(cls):
     return cls
 
 
+class PathParameter(luigi.Parameter):
+    def parse(self, x):
+        return pathlib.Path(x)
+
+
 @set_default_from_config
 class DirectoryParams(luigi.Config):
-    data_path = luigi.Parameter(description='Path to base data folder.', significant=False)
-    results_path = luigi.Parameter(description='Path to base result folder.')
+    data_path = PathParameter(description='Path to base data folder.', significant=False)
+    results_path = PathParameter(description='Path to base result folder.')
 
     def to_results_path(self, path):
         return self.change_root_path(path, self.data_path, self.results_path)
@@ -52,7 +57,7 @@ class DirectoryParams(luigi.Config):
 
 
 class FileParam(DirectoryParams):
-    path = luigi.Parameter(description='Path to image.')
+    path = PathParameter(description='Path to image.')
 
     def to_results_file(self, extension):
         """Generates a path to save a results file in the results directory with the given extension.
@@ -65,14 +70,14 @@ class FileParam(DirectoryParams):
 
 
 class ExperimentParam(DirectoryParams):
-    experiment_path = luigi.Parameter()
+    experiment_path = PathParameter()
 
     def to_experiment_path(self, filename):
         """Generates a path to save a results file in the results directory with the given extension.
 
         Replicates the folder structure from data directory in the results directory.
 
-        :param str extension: must start with a dot. Example: ".background.tif"
+        :param str filename: must start with a dot. Example: ".background.tif"
         """
         return super().to_results_path(self.experiment_path) / filename
 
@@ -89,7 +94,7 @@ class RelativeChannelParams(luigi.Config):
 
 
 class CorrectedImageParams(FileParam, ExperimentParam, ChannelParams):
-    normalization_path = luigi.Parameter()
+    normalization_path = PathParameter()
 
     @property
     def corrected_image_params(self):
@@ -101,8 +106,8 @@ class CorrectedImageParams(FileParam, ExperimentParam, ChannelParams):
 
 
 class CorrectedPairParams(CorrectedImageParams, RelativeChannelParams):
-    relative_path = luigi.Parameter()
-    relative_normalization_path = luigi.Parameter()
+    relative_path = PathParameter()
+    relative_normalization_path = PathParameter()
 
     @property
     def corrected_relative_image_params(self):
