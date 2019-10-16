@@ -2,12 +2,13 @@ import pathlib
 
 import luigi
 import numpy as np
+import pandas as pd
 from luigi.util import delegates
 from scipy import ndimage
 from scipy.ndimage.measurements import _stats
 
 from image import CorrectedImage
-from parameters import DirectoryParams, RelativeChannelParams, DataFrameParameter
+from parameters import DirectoryParams, RelativeChannelParams
 from tracking import TrackedLabels
 from utils import LocalNpz
 
@@ -15,12 +16,12 @@ from utils import LocalNpz
 @delegates
 class Intensities(DirectoryParams, RelativeChannelParams, luigi.Task):
     """Calculates intensities curves for each cell."""
-    dg = DataFrameParameter()
+    dg = luigi.DictParameter()
 
     @property
     def indexed_dg(self):
         """Indexed by channels."""
-        return self.dg.set_index(['fluorophore', 'polarization'], drop=False)
+        return pd.DataFrame.from_dict(self.dg, 'index').set_index(['fluorophore', 'polarization'], drop=False)
 
     def subtasks(self):
         return {k: CorrectedImage.from_dict(d) for k, d in self.indexed_dg.iterrows()}
@@ -30,7 +31,7 @@ class Intensities(DirectoryParams, RelativeChannelParams, luigi.Task):
         return TrackedLabels.from_dict(d_relative)
 
     def output(self):
-        d = self.dg.iloc[0]
+        d = self.indexed_dg.iloc[0]
         path, position = pathlib.Path(d.path), d.position
         return LocalNpz(self.to_results_path(path.with_name(f'{position}.cell.npz')))
 

@@ -17,7 +17,7 @@ class RunAll(luigi.WrapperTask):
 
         # Yielding all tasks
         for (date, position), dg in df.groupby(['date', 'position']):
-            yield Intensities(dg=dg)
+            yield Intensities(dg=dg.to_dict('index'))
 
 
 if __name__ == '__main__':
