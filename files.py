@@ -56,8 +56,9 @@ class Files(DirectoryParams, luigi.Task):
             date = file.parent.stem
             experiment_path = file.parent
             normalization_file = results_path / normalizations[date][polarization]
-            df.append((date, position, fluorophore, polarization, experiment_path, file, normalization_file))
+            df.append(
+                (date, position, fluorophore, polarization, str(experiment_path), str(file), str(normalization_file)))
 
-        columns = ('date', 'position', 'fluorophore', 'polarization', 'experiment_path', 'file', 'normalization')
+        columns = ('date', 'position', 'fluorophore', 'polarization', 'experiment_path', 'path', 'normalization_path')
         df = pd.DataFrame(data=df, columns=columns)
         self.output().save(df)
