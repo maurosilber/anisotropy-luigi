@@ -1,6 +1,6 @@
 import luigi
 
-from anisotropy import Intensity
+from anisotropy import Intensities
 from files import Files
 from invalidation import invalidate_downstream
 
@@ -17,19 +17,7 @@ class RunAll(luigi.WrapperTask):
 
         # Yielding all tasks
         for (date, position), dg in df.groupby(['date', 'position']):
-            dg = dg.set_index(['fluorophore', 'polarization'], drop=False)
-            d_ref = dg.loc['Cit', 'parallel']
-            relative_params = {'relative_path': d_ref.file,
-                               'relative_fluorophore': d_ref.fluorophore,
-                               'relative_polarization': d_ref.polarization,
-                               'relative_normalization_path': d_ref.normalization}
-            for d in dg.itertuples():
-                yield Intensity(path=d.file,
-                                experiment_path=d.experiment_path,
-                                fluorophore=d.fluorophore,
-                                polarization=d.polarization,
-                                normalization_path=d.normalization,
-                                **relative_params)
+            yield Intensities(dg=dg)
 
 
 if __name__ == '__main__':

@@ -1,41 +1,63 @@
+import pathlib
+
 import luigi
 import numpy as np
 from luigi.util import delegates
 from scipy import ndimage
+from scipy.ndimage.measurements import _stats
 
 from image import CorrectedImage
-from parameters import CorrectedPairParams
+from parameters import DirectoryParams, RelativeChannelParams, DataFrameParameter
 from tracking import TrackedLabels
 from utils import LocalNpz
 
 
 @delegates
-class Intensity(CorrectedPairParams, luigi.Task):
-    """Calculates total intensity per cell."""
+class Intensities(DirectoryParams, RelativeChannelParams, luigi.Task):
+    """Calculates intensities curves for each cell."""
+    dg = DataFrameParameter()
+
+    @property
+    def indexed_dg(self):
+        """Indexed by channels."""
+        return self.dg.set_index(['fluorophore', 'polarization'], drop=False)
 
     def subtasks(self):
-        return CorrectedImage(**self.corrected_image_params)
+        return {k: CorrectedImage.from_dict(d) for k, d in self.indexed_dg.iterrows()}
 
     def requires(self):
-        return TrackedLabels(**self.corrected_relative_image_params)
+        d_relative = self.indexed_dg.loc[(self.relative_fluorophore, self.relative_polarization)]
+        return TrackedLabels.from_dict(d_relative)
 
     def output(self):
-        return LocalNpz(self.to_results_file('.intensity.npz'))
+        d = self.dg.iloc[0]
+        path, position = pathlib.Path(d.path), d.position
+        return LocalNpz(self.to_results_path(path.with_name(f'{position}.cell.npz')))
 
     def run(self):
         tracked_labels = self.input().open()
         labels = np.arange(1, tracked_labels.max() + 1)
-        intensities = np.empty((len(tracked_labels), labels.size))
+        channels = self.subtasks().keys()
 
-        with self.subtasks() as ims:
-            for i, (im, tracked_label) in enumerate(zip(ims.corrected_images(), tracked_labels)):
-                # im has a mask where it's saturated.
-                intensities[i] = ndimage.sum(im.filled(np.nan), tracked_label, labels)
+        cell_sizes = np.empty((len(tracked_labels), labels.size))
+        intensities = {k: np.empty((len(tracked_labels), labels.size)) for k in channels}
+
+        for i, tracked_label in enumerate(tracked_labels):
+            count, _ = _stats(tracked_label, tracked_label, labels)
+            cell_sizes[i] = count
+
+        for k, v in self.subtasks().items():
+            with v as ims:
+                for i, (im, tracked_label) in enumerate(zip(ims.corrected_images(), tracked_labels)):
+                    # im has a mask where it's saturated.
+                    intensities[k][i] = ndimage.sum(im.filled(np.nan), tracked_label, labels)
 
         data = {}
-        for label, intensity in zip(labels, intensities.T):
-            cond = np.where(intensity > 0)[0]
+        for i, (label, cell_size) in enumerate(zip(labels, cell_sizes.T)):
+            cond = np.where(cell_size > 0)[0]
             data[f'{label}_index'] = cond
-            data[f'{label}_intensity'] = intensity[cond]
+            data[f'{label}_cell_size'] = cell_size[cond]
+            for (fluorophore, polarization), intensity in intensities.items():
+                data[f'{label}_{fluorophore}_{polarization}_intensity'] = intensity[:, i][cond]
 
         self.output().save(**data)

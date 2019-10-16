@@ -1,6 +1,7 @@
 import pathlib
 
 import luigi
+import pandas
 
 
 def set_default_from_config(cls):
@@ -29,6 +30,16 @@ def set_default_from_config(cls):
 class PathParameter(luigi.Parameter):
     def parse(self, x):
         return pathlib.Path(x)
+
+
+class DataFrameParameter(luigi.DictParameter):
+    def serialize(self, x):
+        x = x.to_dict('index')
+        return super().serialize(x)
+
+    def parse(self, s):
+        s = super().parse(s)
+        return pandas.DataFrame.from_dict(s, 'index')
 
 
 class DictConstructor(luigi.Config):

@@ -55,7 +55,10 @@ class Files(DirectoryParams, luigi.Task):
 
             date = file.parent.stem
             experiment_path = file.parent
-            normalization_file = results_path / normalizations[date][polarization]
+            try:
+                normalization_file = results_path / normalizations[date][polarization]
+            except KeyError:  # Some normalizations haven't been calculated yet
+                continue
             df.append(
                 (date, position, fluorophore, polarization, str(experiment_path), str(file), str(normalization_file)))
 
