@@ -1,7 +1,6 @@
 import luigi
 
-from anisotropy_luigi.anisotropy import Intensities
-from anisotropy_luigi.files import Files
+from anisotropy_luigi.cell import AnisotropyJump
 from anisotropy_luigi.invalidation import invalidate_downstream
 
 
@@ -9,15 +8,7 @@ class RunAll(luigi.WrapperTask):
     """Dummy task to preprocess and call all tasks."""
 
     def requires(self):
-        # Manual handling of task
-        files = Files()
-        if not files.complete():
-            files.run()
-        df = files.output().open()
-
-        # Yielding all tasks
-        for (date, position), dg in df.groupby(['date', 'position']):
-            yield Intensities(dg=dg.to_dict('index'))
+        return AnisotropyJump()
 
 
 if __name__ == '__main__':
