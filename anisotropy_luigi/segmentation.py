@@ -4,9 +4,9 @@ from cellment import background
 from luigi.util import delegates
 from skimage import morphology
 
-from image import CorrectedImage, CorrectedBackground
-from parameters import CorrectedImageParams
-from utils import LocalNpy
+from anisotropy_luigi.image import CorrectedImage, CorrectedBackground
+from anisotropy_luigi.parameters import CorrectedImageParams
+from anisotropy_luigi.utils import LocalNpy
 
 
 @delegates

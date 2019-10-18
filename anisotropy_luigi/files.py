@@ -4,8 +4,8 @@ import luigi
 import pandas as pd
 import parse
 
-from parameters import DirectoryParams
-from utils import LocalPandas
+from anisotropy_luigi.parameters import DirectoryParams
+from anisotropy_luigi.utils import LocalPandas
 
 martin_to_agus = {'CFP405': 'BFP_parallel',
                   'CFP4052': 'BFP_perpendicular',

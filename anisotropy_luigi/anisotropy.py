@@ -7,10 +7,10 @@ from luigi.util import delegates
 from scipy import ndimage
 from scipy.ndimage.measurements import _stats
 
-from image import CorrectedImage
-from parameters import DirectoryParams, RelativeChannelParams
-from tracking import TrackedLabels
-from utils import LocalNpz
+from anisotropy_luigi.image import CorrectedImage
+from anisotropy_luigi.parameters import DirectoryParams, RelativeChannelParams
+from anisotropy_luigi.tracking import TrackedLabels
+from anisotropy_luigi.utils import LocalNpz
 
 
 @delegates

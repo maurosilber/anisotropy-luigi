@@ -1,8 +1,8 @@
 import luigi
 
-from anisotropy import Intensities
-from files import Files
-from invalidation import invalidate_downstream
+from anisotropy_luigi.anisotropy import Intensities
+from anisotropy_luigi.files import Files
+from anisotropy_luigi.invalidation import invalidate_downstream
 
 
 class RunAll(luigi.WrapperTask):

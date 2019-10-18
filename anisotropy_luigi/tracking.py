@@ -4,9 +4,9 @@ import luigi
 import numpy as np
 from cellment import tracking
 
-from parameters import CorrectedImageParams
-from segmentation import Labels
-from utils import LocalNpy
+from anisotropy_luigi.parameters import CorrectedImageParams
+from anisotropy_luigi.segmentation import Labels
+from anisotropy_luigi.utils import LocalNpy
 
 
 class TrackedLabels(CorrectedImageParams, luigi.Task):

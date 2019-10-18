@@ -6,10 +6,10 @@ from cellment import background
 from luigi.util import delegates
 from skimage import feature
 
-from files import Files
-from parameters import FileParam, ExperimentParam, ChannelParams, RelativeChannelParams, \
+from anisotropy_luigi.files import Files
+from anisotropy_luigi.parameters import FileParam, ExperimentParam, ChannelParams, RelativeChannelParams, \
     CorrectedImageParams
-from utils import LocalTiff, LocalNpy, LocalNpz
+from anisotropy_luigi.utils import LocalTiff, LocalNpy, LocalNpz
 
 
 class Image(luigi.ExternalTask, FileParam):
