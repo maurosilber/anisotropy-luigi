@@ -183,6 +183,8 @@ class CorrectedImage(luigi.WrapperTask, CorrectedImageParams):
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.ims.close()
         self.normalization.close()
+        del self.bg
+        del self.shift
 
     def corrected_image(self, item):
         im = self.ims.masked_image(item) / self.image_exposure
