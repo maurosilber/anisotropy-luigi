@@ -1,12 +1,13 @@
 import itertools
 
 import luigi
+import networkx as nx
 import numpy as np
 from cellment import tracking
 
 from anisotropy_luigi.parameters import CorrectedImageParams
 from anisotropy_luigi.segmentation import Labels
-from anisotropy_luigi.utils import LocalNpy
+from anisotropy_luigi.utils import LocalNpy, LocalTarget
 
 
 class TrackedLabels(CorrectedImageParams, luigi.Task):
@@ -34,3 +35,16 @@ class TrackedLabels(CorrectedImageParams, luigi.Task):
                 tracked_labels[t][labels[t] == label] = new_label
 
         self.output().save(tracked_labels)
+
+
+class IntersectionGraph(CorrectedImageParams, luigi.Task):
+    def requires(self):
+        return Labels(**self.corrected_image_params)
+
+    def output(self):
+        return LocalTarget(self.to_results_file('.graph'))
+
+    def run(self):
+        labels = self.input().open()  # Loads labeled segmentation
+        graph = tracking.labels_graph(labels)  # Computes graph of intersections
+        nx.write_graphml(graph, self.output().path)
