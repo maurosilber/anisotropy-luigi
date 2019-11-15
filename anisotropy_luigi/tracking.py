@@ -1,17 +1,22 @@
-import itertools
-
 import luigi
-import networkx as nx
 import numpy as np
 from cellment import tracking
+from luigi.util import delegates
 
+from anisotropy_luigi.image import CorrectedImage
 from anisotropy_luigi.parameters import CorrectedImageParams
 from anisotropy_luigi.segmentation import Labels
-from anisotropy_luigi.utils import LocalNpy, LocalTarget
+from anisotropy_luigi.utils import LocalNpy
 
 
+@delegates
 class TrackedLabels(CorrectedImageParams, luigi.Task):
     """Tracks cells and generates a new label mask."""
+    area_threshold = luigi.IntParameter()
+    edge_threshold = luigi.FloatParameter()
+
+    def subtasks(self):
+        return CorrectedImage(**self.corrected_image_params)
 
     def requires(self):
         return Labels(**self.corrected_image_params)
@@ -20,31 +25,28 @@ class TrackedLabels(CorrectedImageParams, luigi.Task):
         return LocalNpy(self.to_results_file('.tracked_labels.npy'))
 
     def run(self):
-        labels = self.input().open()  # Loads labeled segmentation
+        labels = self.input().open().copy()  # Loads labeled segmentation
+        graph = tracking.Labels_graph.from_labels_stack(labels)  # Computes graph of intersections
 
-        graph = tracking.labels_graph(labels)  # Computes graph of intersections
+        # Split merged labels
+        with self.subtasks() as cim:
+            class Images:
+                def __init__(self, cim):
+                    self.cim = cim
+
+                def __getitem__(self, item):
+                    return self.cim.corrected_image(item)
+
+            images = Images(cim)
+            tracking.split_nodes(labels, graph, images, self.area_threshold, self.edge_threshold)
+
         subgraphs = tracking.decompose(graph)  # Decomposes in disconnected subgraphs
-        subgraphs = map(tracking.get_timelike_chains, subgraphs)  # Decomposes in timelike chains
-        subgraphs = itertools.chain.from_iterable(subgraphs)
-        subgraphs = list(filter(lambda x: len(x) > 10, subgraphs))  # Filters short chains
+        subgraphs = list(filter(lambda x: x.is_timelike_chain(), subgraphs))  # Keeps only time-like chains
 
         # Generates new labeled mask with tracking data
         tracked_labels = np.zeros_like(labels, dtype=np.min_scalar_type(len(subgraphs) + 1))
         for new_label, subgraph in enumerate(subgraphs, 1):
-            for t, label in subgraph.nodes:
-                tracked_labels[t][labels[t] == label] = new_label
+            for node in subgraph:
+                tracked_labels[node.time][labels[node.time] == node.label] = new_label
 
         self.output().save(tracked_labels)
-
-
-class IntersectionGraph(CorrectedImageParams, luigi.Task):
-    def requires(self):
-        return Labels(**self.corrected_image_params)
-
-    def output(self):
-        return LocalTarget(self.to_results_file('.graph'))
-
-    def run(self):
-        labels = self.input().open()  # Loads labeled segmentation
-        graph = tracking.labels_graph(labels)  # Computes graph of intersections
-        nx.write_graphml(graph, self.output().path)
