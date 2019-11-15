@@ -166,7 +166,7 @@ class CorrectedImage(luigi.WrapperTask, CorrectedImageParams):
                 'image_metadata': Metadata(path=self.path),
                 'normalization_metadata': Metadata(path=self.normalization_path)}
 
-    def __enter__(self):
+    def open(self):
         self.ims = self.subtasks().open()
         self.bg = self.input()['background'].open()
         self.shift = self.input()['shift'].open()
@@ -180,11 +180,17 @@ class CorrectedImage(luigi.WrapperTask, CorrectedImageParams):
             self.normalization_background = float(normalization_metadata['Background'])
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def close(self):
         self.ims.close()
         self.normalization.close()
         del self.bg
         del self.shift
+
+    def __enter__(self):
+        return self.open()
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
 
     def corrected_image(self, item):
         im = self.ims.masked_image(item) / self.image_exposure
