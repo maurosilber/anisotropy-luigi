@@ -1,12 +1,12 @@
 import luigi
 import numpy as np
 from cellment import background
+from donkey_kong.target.numpy import LocalNpy
 from luigi.util import delegates
 from skimage import morphology
 
 from anisotropy_luigi.image import CorrectedImage, CorrectedBackground
 from anisotropy_luigi.parameters import CorrectedImageParams
-from anisotropy_luigi.utils import LocalNpy
 
 
 @delegates
@@ -29,7 +29,7 @@ class Labels(CorrectedImageParams, luigi.Task):
         with self.subtasks()['image'] as ims, self.input()['background'] as bg_rvs:
             labels = np.empty(ims.shape, dtype=int)
             max_label = 0
-            for i, im in enumerate(ims.corrected_images()):
+            for i, im in enumerate(ims):
                 bg_rv = background.HistogramRV(bg_rvs[str(i)])  # loads background distribution
                 mask = (im.data > bg_rv.ppf(self.bg_threshold))  # using underlying image data without mask
                 mask = morphology.binary_opening(mask, morphology.disk(self.binary_opening_size))

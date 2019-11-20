@@ -1,12 +1,12 @@
 import luigi
 import numpy as np
 from cellment import tracking
+from donkey_kong.target.numpy import LocalNpy
 from luigi.util import delegates
 
 from anisotropy_luigi.image import CorrectedImage
 from anisotropy_luigi.parameters import CorrectedImageParams
 from anisotropy_luigi.segmentation import Labels
-from anisotropy_luigi.utils import LocalNpy
 
 
 @delegates
@@ -29,15 +29,7 @@ class TrackedLabels(CorrectedImageParams, luigi.Task):
         graph = tracking.Labels_graph.from_labels_stack(labels)  # Computes graph of intersections
 
         # Split merged labels
-        with self.subtasks() as cim:
-            class Images:
-                def __init__(self, cim):
-                    self.cim = cim
-
-                def __getitem__(self, item):
-                    return self.cim.corrected_image(item)
-
-            images = Images(cim)
+        with self.subtasks() as images:
             tracking.split_nodes(labels, graph, images, self.area_threshold, self.edge_threshold)
 
         subgraphs = tracking.decompose(graph)  # Decomposes in disconnected subgraphs

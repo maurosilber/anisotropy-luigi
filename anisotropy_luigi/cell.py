@@ -6,6 +6,8 @@ import luigi
 import numpy as np
 import pandas as pd
 from anisotropy import anisotropy as anifuncs
+from donkey_kong.target.numpy import LocalNpz
+from donkey_kong.target.pandas import LocalPandasPickle
 from luigi.util import delegates
 from scipy import ndimage
 from scipy.ndimage.measurements import _stats
@@ -14,7 +16,6 @@ from anisotropy_luigi.files import Files
 from anisotropy_luigi.image import CorrectedImage
 from anisotropy_luigi.parameters import DirectoryParams, RelativeChannelParams
 from anisotropy_luigi.tracking import TrackedLabels
-from anisotropy_luigi.utils import LocalNpz, LocalPandas
 
 
 @delegates
@@ -53,7 +54,7 @@ class Intensities(DirectoryParams, RelativeChannelParams, luigi.Task):
 
         for k, v in self.subtasks().items():
             with v as ims:
-                for i, (im, tracked_label) in enumerate(zip(ims.corrected_images(), tracked_labels)):
+                for i, (im, tracked_label) in enumerate(zip(ims, tracked_labels)):
                     # im has a mask where it's saturated.
                     intensities[k][i] = ndimage.sum(im.filled(np.nan), tracked_label, labels)
 
@@ -85,7 +86,7 @@ class AnisotropyJump(DirectoryParams, RelativeChannelParams, luigi.Task):
             yield Intensities(dg=dg.to_dict('index'))
 
     def output(self):
-        return LocalPandas(self.results_path / 'anisotropy.pandas')
+        return LocalPandasPickle(self.results_path / 'anisotropy.pandas')
 
     def run(self):
         df = []

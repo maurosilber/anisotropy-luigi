@@ -3,9 +3,9 @@ import pathlib
 import luigi
 import pandas as pd
 import parse
+from donkey_kong.target.pandas import LocalPandasPickle
 
 from anisotropy_luigi.parameters import DirectoryParams
-from anisotropy_luigi.utils import LocalPandas
 
 martin_to_agus = {'CFP405': 'BFP_parallel',
                   'CFP4052': 'BFP_perpendicular',
@@ -35,7 +35,7 @@ class Files(DirectoryParams, luigi.Task):
     """Generates a Pandas DataFrame with image file paths and associated metadata such as date, position, etc."""
 
     def output(self):
-        return LocalPandas(pathlib.Path(self.results_path) / 'files.pandas')
+        return LocalPandasPickle(pathlib.Path(self.results_path) / 'files.pandas')
 
     def run(self):
         data_path = pathlib.Path(self.data_path)

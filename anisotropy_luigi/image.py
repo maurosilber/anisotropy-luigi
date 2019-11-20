@@ -3,13 +3,14 @@ import json
 import luigi
 import numpy as np
 from cellment import background
+from donkey_kong.target.numpy import LocalNpy, LocalNpz
+from donkey_kong.target.tifffile import LocalTiff
 from luigi.util import delegates
 from skimage import feature
 
 from anisotropy_luigi.files import Files
 from anisotropy_luigi.parameters import FileParam, ExperimentParam, ChannelParams, RelativeChannelParams, \
     CorrectedImageParams
-from anisotropy_luigi.utils import LocalTiff, LocalNpy, LocalNpz
 
 
 class Image(luigi.ExternalTask, FileParam):
@@ -43,12 +44,8 @@ class MaskedImage(luigi.WrapperTask, FileParam):
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
 
-    def masked_image(self, item):
-        return np.ma.masked_greater_equal(self.ims.image(item), self.saturation)
-
-    def masked_images(self):
-        for i in range(len(self)):
-            yield self.masked_image(i)
+    def __getitem__(self, item):
+        return np.ma.masked_greater_equal(self.ims[item], self.saturation)
 
     def __len__(self):
         return len(self.ims)
@@ -73,7 +70,7 @@ class Background(FileParam, luigi.Task):
     def run(self):
         with self.subtasks() as ims:
             bg = np.empty(len(ims))
-            for i, im in enumerate(ims.masked_images()):
+            for i, im in enumerate(ims):
                 bg_rv = background.bg_rv(im, self.sigma, self.window, threshold=self.threshold)
                 bg[i] = bg_rv.median()
         self.output().save(bg)
@@ -99,8 +96,8 @@ class Shift(ExperimentParam, ChannelParams, RelativeChannelParams, luigi.Task):
                 dg = dg.set_index(['fluorophore', 'polarization'])
                 d = dg.loc[self.fluorophore, self.polarization]
                 d_ref = dg.loc[self.relative_fluorophore, self.relative_polarization]
-                with Image(path=d.file).output() as ims, Image(path=d_ref.file).output() as rel_ims:
-                    for im, rel_im in zip(ims.images(), rel_ims.images()):
+                with Image(path=d.path).output() as ims, Image(path=d_ref.path).output() as rel_ims:
+                    for im, rel_im in zip(ims, rel_ims):
                         shift = feature.register_translation(im, rel_im, 100)[0]
                         shifts.append(shift)
             shifts = np.median(shifts, axis=0)
@@ -193,15 +190,20 @@ class CorrectedImage(luigi.WrapperTask, CorrectedImageParams):
         self.close()
 
     def corrected_image(self, item):
-        im = self.ims.masked_image(item) / self.image_exposure
+        im = self.ims[item] / self.image_exposure
         bg = self.bg[item] / self.image_exposure
-        normalization = (self.normalization.image() - self.normalization_background) / self.normalization_exposure
+        normalization = (self.normalization[0] - self.normalization_background) / self.normalization_exposure
         shift = self.shift.astype(int)
         return np.roll((im - bg) / normalization, shift, axis=self.axis)
 
-    def corrected_images(self):
-        for i in range(len(self)):
-            yield self.corrected_image(i)
+    def __getitem__(self, item):
+        xy = slice(None)
+        if isinstance(item, tuple):
+            item, xy = item[0], item[1:]
+        if not isinstance(item, int):
+            raise NotImplementedError("Slicing along the temporal dimension hasn't been implemented")
+        else:
+            return self.corrected_image(item)[xy]
 
     def __len__(self):
         return len(self.ims)
@@ -227,7 +229,7 @@ class CorrectedBackground(CorrectedImageParams, luigi.Task):
     def run(self):
         with self.subtasks() as ims:
             bg_rvs = {}
-            for i, im in enumerate(ims.corrected_images()):
+            for i, im in enumerate(ims):
                 bg_rv = background.bg_rv(im, self.sigma, self.window, threshold=self.threshold)
                 bg_rvs[str(i)] = bg_rv._histogram
         self.output().save(**bg_rvs)
