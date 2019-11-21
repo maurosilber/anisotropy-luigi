@@ -58,6 +58,12 @@ class Intensities(DirectoryParams, RelativeChannelParams, luigi.Task):
                     # im has a mask where it's saturated.
                     intensities[k][i] = ndimage.sum(im.filled(np.nan), tracked_label, labels)
 
+                    # If labeled object is next to the image borders, don't consider its intensity.
+                    edges = (tracked_label[0], tracked_label[:, 0], tracked_label[-1], tracked_label[:, -1])
+                    labels_in_edges = reduce(np.union1d, edges)
+                    labels_in_edges = labels_in_edges[np.nonzero(labels_in_edges)]
+                    intensities[k][i][labels_in_edges - 1] = np.nan
+
         data = {'labels': labels, 'channels': list(channels)}
         for i, (label, cell_size) in enumerate(zip(labels, cell_sizes.T)):
             cond = np.where(cell_size > 0)[0]
@@ -108,24 +114,31 @@ class AnisotropyJump(DirectoryParams, RelativeChannelParams, luigi.Task):
 
                     # Join masks
                     mask = reduce(np.logical_or, (x['mask'] for x in calcs.values()))
-                    if not mask.any():
-                        mask = slice(None)
-                        # continue
+                    if mask.any():
+                        # Get jump index
+                        tmp = []
+                        for calc in calcs.values():
+                            median_diff = calc['median_diff']
+                            median_zscore = calc['median_zscore']
 
-                    # Get jump index
-                    tmp = []
-                    for calc in calcs.values():
-                        median_diff = calc['median_diff']
-                        median_zscore = calc['median_zscore']
+                            jump_max = np.nanmax(median_diff[mask])
+                            if np.isnan(jump_max):
+                                continue
+                            jump_ix = np.where(median_diff == jump_max)[0]
+                            jump_ix = int(np.median(jump_ix))  # If multiple indexes, keep median
+                            jump_zscore = median_zscore[mask].min()
 
-                        jump_max = median_diff[mask].max()
-                        jump_ix = np.where(median_diff == jump_max)[0]
-                        jump_ix = int(np.median(jump_ix))  # If multiple indexes, keep median
-                        jump_zscore = median_zscore[mask].min()
-
-                        tmp.append((jump_ix, jump_max, jump_zscore))
-                    jump_ix, jump_max, jump_zscore = max(tmp, key=lambda x: x[1])
-                    jump_ix += self.filter_size // 2
+                            tmp.append((jump_ix, jump_max, jump_zscore))
+                        if len(tmp) > 0:
+                            has_jump = True
+                            jump_ix, jump_max, jump_zscore = max(tmp, key=lambda x: x[1])
+                            jump_ix += self.filter_size // 2
+                        else:
+                            has_jump = False
+                            jump_ix = jump_max = jump_zscore = np.nan
+                    else:
+                        has_jump = False
+                        jump_ix = jump_max = jump_zscore = np.nan
 
                     # Save row
                     row = {**group_data, 'label': label,
