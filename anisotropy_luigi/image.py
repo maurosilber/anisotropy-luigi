@@ -193,7 +193,7 @@ class CorrectedImage(luigi.WrapperTask, CorrectedImageParams):
         im = self.ims[item] / self.image_exposure
         bg = self.bg[item] / self.image_exposure
         normalization = (self.normalization[0] - self.normalization_background) / self.normalization_exposure
-        shift = self.shift.astype(int)
+        shift = -self.shift.astype(int)
         return np.roll((im - bg) / normalization, shift, axis=self.axis)
 
     def __getitem__(self, item):
