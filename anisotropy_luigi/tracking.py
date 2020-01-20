@@ -1,12 +1,12 @@
 import luigi
 import numpy as np
 from cellment import tracking
-from donkey_kong.target.numpy import LocalNpy
+from donkeykong.target import LocalNpy
 from luigi.util import delegates
 
-from anisotropy_luigi.image import CorrectedImage
-from anisotropy_luigi.parameters import CorrectedImageParams
-from anisotropy_luigi.segmentation import Labels
+from .image import CorrectedImage
+from .parameters import CorrectedImageParams
+from .segmentation import Labels
 
 
 @delegates

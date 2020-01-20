@@ -3,9 +3,9 @@ import pathlib
 import luigi
 import pandas as pd
 import parse
-from donkey_kong.target.pandas import LocalPandasPickle
+from donkeykong.target import LocalPandasPickle
 
-from anisotropy_luigi.parameters import DirectoryParams
+from .parameters import DirectoryParams
 
 martin_to_agus = {'CFP405': 'BFP_parallel',
                   'CFP4052': 'BFP_perpendicular',

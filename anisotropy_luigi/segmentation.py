@@ -1,12 +1,11 @@
 import luigi
 import numpy as np
-from cellment import background
-from donkey_kong.target.numpy import LocalNpy
+from cellment import background, multi_threshold_segmentation
+from donkeykong.target import LocalNpy
 from luigi.util import delegates
-from skimage import morphology
 
-from anisotropy_luigi.image import CorrectedImage, CorrectedBackground
-from anisotropy_luigi.parameters import CorrectedImageParams
+from .image import CorrectedImage, CorrectedBackground
+from .parameters import CorrectedImageParams
 
 
 @delegates

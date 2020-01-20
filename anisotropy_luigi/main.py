@@ -1,6 +1,6 @@
 import luigi
 
-from anisotropy_luigi.cell import AnisotropyJump
+from .cell import AnisotropyJump
 
 
 class RunAll(luigi.WrapperTask):

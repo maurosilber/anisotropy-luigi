@@ -6,16 +6,15 @@ import luigi
 import numpy as np
 import pandas as pd
 from anisotropy import anisotropy as anifuncs
-from donkey_kong.target.numpy import LocalNpz
-from donkey_kong.target.pandas import LocalPandasPickle
+from donkeykong.target import LocalNpz, LocalPandasPickle
 from luigi.util import delegates
 from scipy import ndimage
 from scipy.ndimage.measurements import _stats
 
-from anisotropy_luigi.files import Files
-from anisotropy_luigi.image import CorrectedImage
-from anisotropy_luigi.parameters import DirectoryParams, RelativeChannelParams
-from anisotropy_luigi.tracking import TrackedLabels
+from .files import Files
+from .image import CorrectedImage
+from .parameters import DirectoryParams, RelativeChannelParams
+from .tracking import TrackedLabels
 
 
 @delegates

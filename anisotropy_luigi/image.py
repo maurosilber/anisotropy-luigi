@@ -1,15 +1,12 @@
-import json
-
 import luigi
 import numpy as np
 from cellment import background
-from donkey_kong.target.numpy import LocalNpy, LocalNpz
-from donkey_kong.target.tifffile import LocalTiff
+from donkeykong.target import LocalNpy, LocalNpz, LocalTiff, LocalJSON
 from luigi.util import delegates
 from skimage import feature
 
-from anisotropy_luigi.files import Files
-from anisotropy_luigi.parameters import FileParam, ExperimentParam, ChannelParams, RelativeChannelParams, \
+from .files import Files
+from .parameters import FileParam, ExperimentParam, ChannelParams, RelativeChannelParams, \
     CorrectedImageParams
 
 
