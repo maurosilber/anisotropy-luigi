@@ -59,8 +59,9 @@ class Background(FileParam, luigi.Task):
     def run(self):
         with self.subtasks() as ims:
             bg = np.empty(len(ims))
+            smo_rv = background._smo_rv(2, self.sigma, self.window)
             for i, im in enumerate(ims):
-                bg_rv = background.bg_rv(im, self.sigma, self.window, threshold=self.threshold)
+                bg_rv = background.bg_rv(im, self.sigma, self.window, threshold=self.threshold, smo_rv=smo_rv)
                 bg[i] = bg_rv.median()
         self.output().save(bg)
 
@@ -207,7 +208,8 @@ class CorrectedBackground(CorrectedImageParams, luigi.Task):
     def run(self):
         with self.subtasks() as ims:
             bg_rvs = {}
+            smo_rv = background._smo_rv(2, self.sigma, self.window)
             for i, im in enumerate(ims):
-                bg_rv = background.bg_rv(im, self.sigma, self.window, threshold=self.threshold)
+                bg_rv = background.bg_rv(im, self.sigma, self.window, threshold=self.threshold, smo_rv=smo_rv)
                 bg_rvs[str(i)] = bg_rv._histogram
         self.output().save(**bg_rvs)
