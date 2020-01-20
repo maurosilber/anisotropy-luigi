@@ -26,20 +26,12 @@ class MaskedImage(luigi.WrapperTask, FileParam):
     def requires(self):
         return Image(path=self.path)
 
-    # Methods to use when calling as a subtask
     def open(self):
         self.ims = self.input().open()
         return self
 
     def close(self):
-        if self.ims is not None:
-            self.ims.close()
-
-    def __enter__(self):
-        return self.open()
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.close()
+        self.ims.close()
 
     def __getitem__(self, item):
         return np.ma.masked_greater_equal(self.ims[item], self.saturation)
@@ -180,27 +172,19 @@ class CorrectedImage(luigi.WrapperTask, CorrectedImageParams):
         del self.bg
         del self.shift
 
-    def __enter__(self):
-        return self.open()
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.close()
-
     def corrected_image(self, item):
         im = self.ims[item] / self.image_exposure
-        bg = self.bg[item] / self.image_exposure
+        bg = self.bg[item, None, None] / self.image_exposure
         normalization = (self.normalization[0] - self.normalization_background) / self.normalization_exposure
         shift = -self.shift.astype(int)
         return np.roll((im - bg) / normalization, shift, axis=self.axis)
 
     def __getitem__(self, item):
-        xy = slice(None)
         if isinstance(item, tuple):
             item, xy = item[0], item[1:]
-        if not isinstance(item, int):
-            raise NotImplementedError("Slicing along the temporal dimension hasn't been implemented")
         else:
-            return self.corrected_image(item)[xy]
+            xy = slice(None)
+        return self.corrected_image(item)[xy]
 
     def __len__(self):
         return len(self.ims)
