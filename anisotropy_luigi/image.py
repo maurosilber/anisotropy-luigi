@@ -105,12 +105,11 @@ class Metadata(FileParam, luigi.Task):
         return Image(path=self.path)
 
     def output(self):
-        return luigi.LocalTarget(self.to_results_file('.metadata.json'))
+        return LocalJSON(self.to_results_file('.metadata.json'), protected=True)
 
     def run(self):
         metadata = self.parse_metadata(self.path)
-        with self.output().open('w') as f:
-            json.dump(metadata, f, indent=0)
+        self.output().save(metadata, indent=0)
 
     @staticmethod
     def parse_metadata(file):
@@ -158,12 +157,10 @@ class CorrectedImage(luigi.WrapperTask, CorrectedImageParams):
         self.shift = self.input()['shift'].open()
         self.axis = tuple(range(-len(self.shift), 0))
         self.normalization = self.input()['normalization'].open()
-        with self.input()['image_metadata'].open() as f:
-            self.image_exposure = float(json.load(f)['ExposureTime1'])
-        with self.input()['normalization_metadata'].open() as f:
-            normalization_metadata = json.load(f)
-            self.normalization_exposure = float(normalization_metadata['ExposureTime'])
-            self.normalization_background = float(normalization_metadata['Background'])
+        self.image_exposure = float(self.input()['image_metadata'].open()['ExposureTime1'])
+        normalization_metadata = self.input()['normalization_metadata'].open()
+        self.normalization_exposure = float(normalization_metadata['ExposureTime'])
+        self.normalization_background = float(normalization_metadata['Background'])
         return self
 
     def close(self):
