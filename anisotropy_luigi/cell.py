@@ -88,6 +88,12 @@ class Anisotropy(luigi.WrapperTask, DirectoryParams, RelativeChannelParams):
     def close(self):
         self.npz.close()
 
+    def time(self, label):
+        return self.npz[f'{label}_index']
+
+    def cell_size(self, label):
+        return self.npz[f'{label}_cell_size']
+
     def intensity(self, polarization, fluorophore, label):
         return self.npz[f'{label}_{fluorophore}_{polarization}_intensity']
 
