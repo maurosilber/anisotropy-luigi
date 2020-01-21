@@ -132,26 +132,22 @@ class AnisotropyJump(DirectoryParams, RelativeChannelParams, luigi.Task):
 
         # Yielding all tasks
         for (date, position), dg in df.groupby(['date', 'position']):
-            yield Intensities(dg=dg.to_dict('index'))
+            yield Anisotropy(dg=dg.to_dict('index'))
 
     def output(self):
         return LocalPandasPickle(self.results_path / 'anisotropy.pandas')
 
     def run(self):
         df = []
-        for intensity in self.requires():
-            dg = next(iter(intensity.dg.values()))
-            group_data = {key: dg[key] for key in ('date', 'position')}
-            with intensity.output() as npz:
-                for label in npz['labels']:
+        for anisotropy in self.requires():
+            group_data = {key: anisotropy.dg[key] for key in ('date', 'position')}
+            with anisotropy:
+                for label in anisotropy.labels:
                     calcs = defaultdict(dict)
 
                     # Filter each channel
                     for fp in ('Cit', 'Kate', 'BFP'):
-                        ipar = npz[f'{label}_{fp}_parallel_intensity']
-                        iper = npz[f'{label}_{fp}_perpendicular_intensity']
-                        ani = anifuncs.anisotropy_from_intensity(ipar, iper)
-                        calcs[fp] = self.jump_filter(ani, self.filter_size)
+                        calcs[fp] = self.jump_filter(anisotropy.anisotropy(fp, label), self.filter_size)
                         calcs[fp]['mask'] = self.discriminator(calcs[fp]['median_diff'], calcs[fp]['median_zscore'],
                                                                self.jump_threshold, self.zscore_threshold)
 
