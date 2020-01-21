@@ -74,6 +74,44 @@ class Intensities(DirectoryParams, RelativeChannelParams, luigi.Task):
         self.output().save(**data)
 
 
+class Anisotropy(luigi.WrapperTask, DirectoryParams, RelativeChannelParams):
+    """Calculates anisotropy curves for each cell."""
+    dg = luigi.DictParameter()
+
+    def requires(self):
+        return Intensities(dg=self.dg)
+
+    def open(self):
+        self.npz = self.input().open()
+        return self
+
+    def close(self):
+        self.npz.close()
+
+    def intensity(self, polarization, fluorophore, label):
+        return self.npz[f'{label}_{fluorophore}_{polarization}_intensity']
+
+    def anisotropy(self, fluorophore, label):
+        return anifuncs.anisotropy_from_intensity(self.intensity('parallel', fluorophore, label),
+                                                  self.intensity('perpendicular', fluorophore, label))
+
+    @property
+    def labels(self):
+        return self.npz['labels']
+
+    @property
+    def max_label(self):
+        return self.labels.max()
+
+    @property
+    def channels(self):
+        return self.npz['channels']
+
+    @property
+    def fluorophores(self):
+        return np.unique(self.npz['channels'][:, 0])
+
+
 class AnisotropyJump(DirectoryParams, RelativeChannelParams, luigi.Task):
     filter_size = luigi.IntParameter()
     jump_threshold = luigi.FloatParameter()
