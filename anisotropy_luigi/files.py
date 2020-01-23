@@ -49,6 +49,10 @@ normalizations = {'20181024': {'parallel': 'normalizations/parallel_fluorescein_
                                'perpendicular': 'normalizations/perpendicular_fluorescein_000_512x672.tif'}
                   }
 
+sensor_data = pd.DataFrame({'fluorophore': ['Cit', 'BFP', 'Kate'],
+                            'delta_brightness': [0.17, 0.15, -0.15]}
+                           ).set_index('fluorophore')
+
 
 class Files(DirectoryParams, luigi.Task):
     """Generates a Pandas DataFrame with image file paths and associated metadata such as date, position, etc."""
