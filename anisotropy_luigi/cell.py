@@ -195,21 +195,19 @@ class AnisotropyJumps(DirectoryParams, RelativeChannelParams, luigi.Task):
                 for fp in ani.fluorophores:
                     a = ani.anisotropy(fp, row.label)
                     data[fp] = self.jump_filter(a, self.filter_size)
-                    data[fp]['mask'] = self.discriminator(data[fp]['diff'], data[fp]['z_score'],
-                                                          self.jump_threshold, self.z_score_threshold)
 
-            full_mask = self.full_mask((d['mask'] for d in data.values()), dilation=self.jump_window_dilation)
+            masks = (self.discriminator(d['diff'], d['z_score'], self.jump_threshold, self.z_score_threshold) for d in
+                     data.values())
+            full_mask = self.full_mask(masks, dilation=self.jump_window_dilation)
             jumps, _ = ndimage.label(full_mask)
             for jump_slice in ndimage.find_objects(jumps):
                 jump_row = dict(row._asdict())
                 for fp, d in data.items():
-                    mask = d['mask'][jump_slice]
-
-                    jump = np.ma.masked_array(d['median'][jump_slice], mask)
+                    jump = np.ma.masked_array(d['median'][jump_slice], full_mask[jump_slice])
                     jump_row[f'{fp}_jump_max'] = jump.max()
                     jump_row[f'{fp}_jump_min'] = jump.min()
 
-                    ix = np.ma.masked_array(d['diff'][jump_slice], mask).argmax()
+                    ix = np.ma.masked_array(d['diff'][jump_slice], full_mask[jump_slice]).argmax()
                     jump_row[f'{fp}_jump_diff'] = d['diff'][jump_slice][ix]
                     jump_row[f'{fp}_jump_z_score'] = d['z_score'][jump_slice][ix]
                     jump_row[f'{fp}_jump_time'] = time[jump_slice][ix]
