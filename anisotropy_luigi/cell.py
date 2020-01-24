@@ -199,14 +199,19 @@ class AnisotropyJumps(DirectoryParams, RelativeChannelParams, luigi.Task):
 
             full_mask = self.full_mask((d['mask'] for d in data.values()), 5)
             jumps, _ = ndimage.label(full_mask)
-            for jump in ndimage.find_objects(jumps):
+            for jump_slice in ndimage.find_objects(jumps):
                 jump_row = dict(row._asdict())
                 for fp, d in data.items():
-                    mask = d['mask'][jump]
-                    ix = np.ma.masked_array(d['diff'][jump], mask).argmax()
-                    jump_row[f'{fp}_jump_max'] = d['diff'][jump][ix]
-                    jump_row[f'{fp}_jump_z_score'] = d['z_score'][jump][ix]
-                    jump_row[f'{fp}_jump_time'] = time[jump][ix]
+                    mask = d['mask'][jump_slice]
+
+                    jump = np.ma.masked_array(d['median'][jump_slice], mask)
+                    jump_row[f'{fp}_jump_max'] = jump.max()
+                    jump_row[f'{fp}_jump_min'] = jump.min()
+
+                    ix = np.ma.masked_array(d['diff'][jump_slice], mask).argmax()
+                    jump_row[f'{fp}_jump_diff'] = d['diff'][jump_slice][ix]
+                    jump_row[f'{fp}_jump_z_score'] = d['z_score'][jump_slice][ix]
+                    jump_row[f'{fp}_jump_time'] = time[jump_slice][ix]
 
                 df.append(jump_row)
 
