@@ -169,6 +169,7 @@ class AnisotropyJumps(DirectoryParams, RelativeChannelParams, luigi.Task):
     filter_size = luigi.IntParameter()
     jump_threshold = luigi.FloatParameter()
     z_score_threshold = luigi.FloatParameter()
+    jump_window_dilation = luigi.IntParameter()
 
     def requires(self):
         return {'files': Files(), 'curve_summary': CurvesSummary()}
@@ -197,7 +198,7 @@ class AnisotropyJumps(DirectoryParams, RelativeChannelParams, luigi.Task):
                     data[fp]['mask'] = self.discriminator(data[fp]['diff'], data[fp]['z_score'],
                                                           self.jump_threshold, self.z_score_threshold)
 
-            full_mask = self.full_mask((d['mask'] for d in data.values()), 5)
+            full_mask = self.full_mask((d['mask'] for d in data.values()), dilation=self.jump_window_dilation)
             jumps, _ = ndimage.label(full_mask)
             for jump_slice in ndimage.find_objects(jumps):
                 jump_row = dict(row._asdict())
@@ -225,7 +226,7 @@ class AnisotropyJumps(DirectoryParams, RelativeChannelParams, luigi.Task):
         diff = median[size:] - median[:-size]
         mad_sum = np.sqrt(mad[size:] ** 2 + mad[:-size] ** 2)
         z_score = diff / mad_sum
-        return {'median': median, 'diff': diff, 'z_score': z_score}
+        return {'median': median[size:], 'diff': diff, 'z_score': z_score}
 
     @staticmethod
     def discriminator(diff, z_score, jump_threshold, z_score_threshold):
