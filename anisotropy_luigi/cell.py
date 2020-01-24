@@ -97,6 +97,12 @@ class Anisotropy(luigi.WrapperTask, DirectoryParams, RelativeChannelParams):
     def intensity(self, polarization, fluorophore, label):
         return self.npz[f'{label}_{fluorophore}_{polarization}_intensity']
 
+    def total_intensity(self, fluorophore, label):
+        return sum(self.intensity(p, fluorophore, label) for p in ('parallel', 'perpendicular'))
+
+    def mean_intensity(self, fluorophore, label):
+        return self.total_intensity(fluorophore, label) / self.cell_size(label)
+
     def anisotropy(self, fluorophore, label):
         return anifuncs.anisotropy_from_intensity(self.intensity('parallel', fluorophore, label),
                                                   self.intensity('perpendicular', fluorophore, label))
