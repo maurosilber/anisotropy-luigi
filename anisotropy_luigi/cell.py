@@ -168,7 +168,7 @@ class CurvesSummary(DirectoryParams, RelativeChannelParams, luigi.Task):
 class AnisotropyJumps(DirectoryParams, RelativeChannelParams, luigi.Task):
     filter_size = luigi.IntParameter()
     jump_threshold = luigi.FloatParameter()
-    zscore_threshold = luigi.FloatParameter()
+    z_score_threshold = luigi.FloatParameter()
 
     def requires(self):
         return {'files': Files(), 'curve_summary': CurvesSummary()}
@@ -194,8 +194,8 @@ class AnisotropyJumps(DirectoryParams, RelativeChannelParams, luigi.Task):
                 for fp in ani.fluorophores:
                     a = ani.anisotropy(fp, row.label)
                     data[fp] = self.jump_filter(a, self.filter_size)
-                    data[fp]['mask'] = self.discriminator(data[fp]['diff'], data[fp]['zscore'],
-                                                          self.jump_threshold, self.zscore_threshold)
+                    data[fp]['mask'] = self.discriminator(data[fp]['diff'], data[fp]['z_score'],
+                                                          self.jump_threshold, self.z_score_threshold)
 
             full_mask = self.full_mask((d['mask'] for d in data.values()), 5)
             jumps, _ = ndimage.label(full_mask)
@@ -205,7 +205,7 @@ class AnisotropyJumps(DirectoryParams, RelativeChannelParams, luigi.Task):
                     mask = d['mask'][jump]
                     ix = np.ma.masked_array(d['diff'][jump], mask).argmax()
                     jump_row[f'{fp}_jump_max'] = d['diff'][jump][ix]
-                    jump_row[f'{fp}_jump_zscore'] = d['zscore'][jump][ix]
+                    jump_row[f'{fp}_jump_z_score'] = d['z_score'][jump][ix]
                     jump_row[f'{fp}_jump_time'] = time[jump][ix]
 
                 df.append(jump_row)
@@ -216,16 +216,15 @@ class AnisotropyJumps(DirectoryParams, RelativeChannelParams, luigi.Task):
     @staticmethod
     def jump_filter(anisotropy, size):
         median = ndimage.filters.median_filter(anisotropy, size=size)
-        mad = (ndimage.filters.percentile_filter(anisotropy, 75, size=size)
-               - ndimage.filters.percentile_filter(anisotropy, 25, size=size))
+        mad = 1.4826 * ndimage.filters.median_filter(anisotropy - median, size=size)
         diff = median[size:] - median[:-size]
-        mad_sum = mad[size:] + mad[:-size]
-        zscore = diff / mad_sum
-        return {'median': median, 'diff': diff, 'zscore': zscore}
+        mad_sum = np.sqrt(mad[size:] ** 2 + mad[:-size] ** 2)
+        z_score = diff / mad_sum
+        return {'median': median, 'diff': diff, 'z_score': z_score}
 
     @staticmethod
-    def discriminator(diff, zscore, jump_threshold, zscore_threshold):
-        return (diff > jump_threshold) & (np.abs(zscore) > zscore_threshold)
+    def discriminator(diff, z_score, jump_threshold, z_score_threshold):
+        return (diff > jump_threshold) & (np.abs(z_score) > z_score_threshold)
 
     @staticmethod
     def full_mask(masks, dilation):
