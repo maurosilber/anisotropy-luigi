@@ -1,14 +1,14 @@
 import pathlib
-from collections import defaultdict
 from functools import reduce
 
 import luigi
 import numpy as np
 import pandas as pd
-from anisotropy import anisotropy as anifuncs
+from anisotropy import functions as anifuncs
 from donkeykong.target import LocalNpz, LocalPandasPickle
 from luigi.util import delegates
 from scipy import ndimage
+from scipy import stats
 from scipy.ndimage.measurements import _stats
 
 from .files import Files
@@ -77,6 +77,7 @@ class Intensities(DirectoryParams, RelativeChannelParams, luigi.Task):
 class Anisotropy(luigi.WrapperTask, DirectoryParams, RelativeChannelParams):
     """Calculates anisotropy curves for each cell."""
     dg = luigi.DictParameter()
+    npz = None
 
     def requires(self):
         return Intensities(dg=self.dg)
@@ -98,7 +99,8 @@ class Anisotropy(luigi.WrapperTask, DirectoryParams, RelativeChannelParams):
         return self.npz[f'{label}_{fluorophore}_{polarization}_intensity']
 
     def total_intensity(self, fluorophore, label):
-        return sum(self.intensity(p, fluorophore, label) for p in ('parallel', 'perpendicular'))
+        return anifuncs.total_intensity(self.intensity('parallel', fluorophore, label),
+                                        self.intensity('perpendicular', fluorophore, label))
 
     def mean_intensity(self, fluorophore, label):
         return self.total_intensity(fluorophore, label) / self.cell_size(label)
@@ -124,10 +126,8 @@ class Anisotropy(luigi.WrapperTask, DirectoryParams, RelativeChannelParams):
         return np.unique(self.npz['channels'][:, 0])
 
 
-class AnisotropyJump(DirectoryParams, RelativeChannelParams, luigi.Task):
-    filter_size = luigi.IntParameter()
-    jump_threshold = luigi.FloatParameter()
-    zscore_threshold = luigi.FloatParameter()
+class CurvesSummary(DirectoryParams, RelativeChannelParams, luigi.Task):
+    """DataFrame with a summary for each cell."""
 
     def requires(self):
         # Manual handling of task
@@ -141,54 +141,74 @@ class AnisotropyJump(DirectoryParams, RelativeChannelParams, luigi.Task):
             yield Anisotropy(dg=dg.to_dict('index'))
 
     def output(self):
-        return LocalPandasPickle(self.results_path / 'anisotropy.pandas')
+        return LocalPandasPickle(self.results_path / 'curves_summary.pandas')
 
     def run(self):
         df = []
         for anisotropy in self.requires():
-            group_data = {key: anisotropy.dg[key] for key in ('date', 'position')}
-            with anisotropy:
-                for label in anisotropy.labels:
-                    calcs = defaultdict(dict)
+            row = next(iter(anisotropy.dg.values()))
+            group_data = {key: row[key] for key in ('date', 'position')}
+            with anisotropy as ani:
+                for label in ani.labels:
+                    data = {**group_data, 'label': label,
+                            'cell_size': np.median(ani.cell_size(label)),
+                            'length': min((~np.isnan(ani.anisotropy(fp, label))).sum() for fp in ani.fluorophores)
+                            }
 
-                    # Filter each channel
-                    for fp in ('Cit', 'Kate', 'BFP'):
-                        calcs[fp] = self.jump_filter(anisotropy.anisotropy(fp, label), self.filter_size)
-                        calcs[fp]['mask'] = self.discriminator(calcs[fp]['median_diff'], calcs[fp]['median_zscore'],
-                                                               self.jump_threshold, self.zscore_threshold)
+                    for fp in ani.fluorophores:
+                        data[f'{fp}_total_intensity'] = np.nanmedian(ani.total_intensity(fp, label))
+                        data[f'{fp}_mean_intensity'] = np.nanmedian(ani.mean_intensity(fp, label))
+                        data[f'{fp}_anisotropy_iqr'] = stats.iqr(np.diff(ani.anisotropy(fp, label)), nan_policy='omit')
+                    df.append(data)
 
-                    # Join masks
-                    mask = reduce(np.logical_or, (x['mask'] for x in calcs.values()))
-                    if mask.any():
-                        # Get jump index
-                        tmp = []
-                        for calc in calcs.values():
-                            median_diff = calc['median_diff']
-                            median_zscore = calc['median_zscore']
+        df = pd.DataFrame(df)
+        self.output().save(df)
 
-                            jump_max = np.nanmax(median_diff[mask])
-                            if np.isnan(jump_max):
-                                continue
-                            jump_ix = np.where(median_diff == jump_max)[0]
-                            jump_ix = int(np.median(jump_ix))  # If multiple indexes, keep median
-                            jump_zscore = median_zscore[mask].min()
 
-                            tmp.append((jump_ix, jump_max, jump_zscore))
-                        if len(tmp) > 0:
-                            has_jump = True
-                            jump_ix, jump_max, jump_zscore = max(tmp, key=lambda x: x[1])
-                            jump_ix += self.filter_size // 2
-                        else:
-                            has_jump = False
-                            jump_ix = jump_max = jump_zscore = np.nan
-                    else:
-                        has_jump = False
-                        jump_ix = jump_max = jump_zscore = np.nan
+class AnisotropyJumps(DirectoryParams, RelativeChannelParams, luigi.Task):
+    filter_size = luigi.IntParameter()
+    jump_threshold = luigi.FloatParameter()
+    zscore_threshold = luigi.FloatParameter()
 
-                    # Save row
-                    row = {**group_data, 'label': label,
-                           'jump_ix': jump_ix, 'jump_max': jump_max, 'jump_zscore': jump_zscore}
-                    df.append(row)
+    def requires(self):
+        return {'files': Files(), 'curve_summary': CurvesSummary()}
+
+    def output(self):
+        return LocalPandasPickle(self.results_path / 'anisotropy_jumps.pandas')
+
+    def run(self):
+        files = self.input()['files'].open().set_index(['date', 'position']).sort_index()
+
+        curves_summary = self.input()['curve_summary'].open()
+        curves_summary = (curves_summary.query('length > 50')
+                          .query('BFP_anisotropy_iqr < 0.2')
+                          .query('Kate_anisotropy_iqr < 0.2'))
+
+        df = []
+        for row in curves_summary.itertuples():
+            dg = files.loc[(row.date, row.position)]
+            with Anisotropy(dg=dg.reset_index().to_dict('index')) as ani:
+                data = {}
+                time = ani.time(row.label)
+
+                for fp in ani.fluorophores:
+                    a = ani.anisotropy(fp, row.label)
+                    data[fp] = self.jump_filter(a, self.filter_size)
+                    data[fp]['mask'] = self.discriminator(data[fp]['diff'], data[fp]['zscore'],
+                                                          self.jump_threshold, self.zscore_threshold)
+
+            full_mask = self.full_mask((d['mask'] for d in data.values()), 5)
+            jumps, _ = ndimage.label(full_mask)
+            for jump in ndimage.find_objects(jumps):
+                jump_row = dict(row._asdict())
+                for fp, d in data.items():
+                    mask = d['mask'][jump]
+                    ix = np.ma.masked_array(d['diff'][jump], mask).argmax()
+                    jump_row[f'{fp}_jump_max'] = d['diff'][jump][ix]
+                    jump_row[f'{fp}_jump_zscore'] = d['zscore'][jump][ix]
+                    jump_row[f'{fp}_jump_time'] = time[jump][ix]
+
+                df.append(jump_row)
 
         df = pd.DataFrame(df)
         self.output().save(df)
@@ -198,11 +218,16 @@ class AnisotropyJump(DirectoryParams, RelativeChannelParams, luigi.Task):
         median = ndimage.filters.median_filter(anisotropy, size=size)
         mad = (ndimage.filters.percentile_filter(anisotropy, 75, size=size)
                - ndimage.filters.percentile_filter(anisotropy, 25, size=size))
-        median_diff = median[size:] - median[:-size]
+        diff = median[size:] - median[:-size]
         mad_sum = mad[size:] + mad[:-size]
-        median_zscore = median_diff / mad_sum
-        return {'median': median, 'median_diff': median_diff, 'median_zscore': median_zscore}
+        zscore = diff / mad_sum
+        return {'median': median, 'diff': diff, 'zscore': zscore}
 
     @staticmethod
-    def discriminator(median_diff, median_zscore, jump_threshold, zscore_threshold):
-        return (median_diff > jump_threshold) & (np.abs(median_zscore) > zscore_threshold)
+    def discriminator(diff, zscore, jump_threshold, zscore_threshold):
+        return (diff > jump_threshold) & (np.abs(zscore) > zscore_threshold)
+
+    @staticmethod
+    def full_mask(masks, dilation):
+        masks = (ndimage.binary_dilation(mask, np.ones(dilation)) for mask in masks)
+        return reduce(np.logical_or, masks)
