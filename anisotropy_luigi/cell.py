@@ -222,7 +222,7 @@ class AnisotropyJumps(DirectoryParams, RelativeChannelParams, luigi.Task):
     @staticmethod
     def jump_filter(anisotropy, size):
         median = ndimage.filters.median_filter(anisotropy, size=size)
-        mad = 1.4826 * ndimage.filters.median_filter(anisotropy - median, size=size)
+        mad = 1.4826 * ndimage.filters.median_filter(np.abs(anisotropy - median), size=size)
         diff = median[size:] - median[:-size]
         mad_sum = np.sqrt(mad[size:] ** 2 + mad[:-size] ** 2)
         z_score = diff / mad_sum
