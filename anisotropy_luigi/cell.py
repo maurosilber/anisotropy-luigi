@@ -200,17 +200,22 @@ class AnisotropyJumps(DirectoryParams, RelativeChannelParams, luigi.Task):
                      data.values())
             full_mask = self.full_mask(masks, dilation=self.jump_window_dilation)
             jumps, _ = ndimage.label(full_mask)
+            full_mask = np.invert(full_mask, out=full_mask)  # np.ma.masked_array needs the inverse
             for jump_slice in ndimage.find_objects(jumps):
                 jump_row = dict(row._asdict())
                 for fp, d in data.items():
-                    jump = np.ma.masked_array(d['median'][jump_slice], full_mask[jump_slice])
-                    jump_row[f'{fp}_jump_max'] = jump.max()
-                    jump_row[f'{fp}_jump_min'] = jump.min()
+                    try:
+                        jump = np.ma.masked_array(d['median'][jump_slice], full_mask[jump_slice])
+                        jump_row[f'{fp}_jump_max'] = np.nanmax(jump)
+                        jump_row[f'{fp}_jump_min'] = np.nanmin(jump)
 
-                    ix = np.ma.masked_array(d['diff'][jump_slice], full_mask[jump_slice]).argmax()
-                    jump_row[f'{fp}_jump_diff'] = d['diff'][jump_slice][ix]
-                    jump_row[f'{fp}_jump_z_score'] = d['z_score'][jump_slice][ix]
-                    jump_row[f'{fp}_jump_time'] = time[jump_slice][ix]
+                        ix = np.nanargmax(np.ma.masked_array(d['diff'][jump_slice], full_mask[jump_slice]))
+                        jump_row[f'{fp}_jump_diff'] = d['diff'][jump_slice][ix]
+                        jump_row[f'{fp}_jump_z_score'] = d['z_score'][jump_slice][ix]
+                        jump_row[f'{fp}_jump_time'] = time[jump_slice][ix]
+                    except ValueError:  # All-NaN slices
+                        for key in ('max', 'min', 'diff', 'z_score', 'time'):
+                            jump_row[f'{fp}_jump_{key}'] = np.nan
 
                 df.append(jump_row)
 
