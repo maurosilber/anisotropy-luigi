@@ -1,3 +1,5 @@
+from contextlib import ExitStack
+
 import luigi
 import numpy as np
 from cellment import background
@@ -153,11 +155,14 @@ class CorrectedImage(luigi.WrapperTask, CorrectedImageParams):
                 'normalization_metadata': Metadata(path=self.normalization_path)}
 
     def open(self):
-        self.ims = self.subtasks().open()
-        self.bg = self.input()['background'].open()
-        self.shift = self.input()['shift'].open()
+        with ExitStack() as cm:
+            self.ims = cm.enter_context(self.subtasks())
+            self.bg = cm.enter_context(self.input()['background'])
+            self.shift = cm.enter_context(self.input()['shift'])
+            self.normalization = cm.enter_context(self.input()['normalization'].open())
+            self._stack = cm.pop_all()
+
         self.axis = tuple(range(-len(self.shift), 0))
-        self.normalization = self.input()['normalization'].open()
         self.image_exposure = float(self.input()['image_metadata'].open()['ExposureTime1'])
         normalization_metadata = self.input()['normalization_metadata'].open()
         self.normalization_exposure = float(normalization_metadata['ExposureTime'])
@@ -165,10 +170,7 @@ class CorrectedImage(luigi.WrapperTask, CorrectedImageParams):
         return self
 
     def close(self):
-        self.ims.close()
-        self.normalization.close()
-        del self.bg
-        del self.shift
+        self._stack.close()
 
     def corrected_image(self, item):
         im = self.ims[item] / self.image_exposure
