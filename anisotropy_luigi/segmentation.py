@@ -1,6 +1,6 @@
 import luigi
 import numpy as np
-from cellment import background, multi_threshold_segmentation
+from cellment import functions, multi_threshold_segmentation
 from donkeykong.target import LocalNpy
 from luigi.util import delegates
 
@@ -26,8 +26,8 @@ class Labels(CorrectedImageParams, luigi.Task):
         with self.subtasks()['image'] as ims, self.input()['background'] as bg_rvs:
             labels = np.empty(ims.shape, dtype=int)
             for i, im in enumerate(ims):
-                bg_rv = background.HistogramRV(bg_rvs[str(i)])  # loads background distribution
+                bg_rv = functions.HistogramRV(bg_rvs[str(i)])  # loads background distribution
                 labels[i] = multi_threshold_segmentation(im.data,  # using underlying image data without mask
-                                                         (0.5, 0.9), bg_rv=bg_rv, size=self.binary_opening_size)
+                                                         (0.9, 0.99, 0.999), bg_rv=bg_rv, size=self.binary_opening_size)
         dtype = np.min_scalar_type(labels.max())
         self.output().save(labels.astype(dtype, copy=False))

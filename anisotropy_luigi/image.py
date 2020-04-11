@@ -2,10 +2,11 @@ from contextlib import ExitStack
 
 import luigi
 import numpy as np
-from cellment import background
+from cellment import functions, background
 from donkeykong.target import LocalNpy, LocalNpz, LocalTiff, LocalJSON
 from luigi.util import delegates
 from skimage import feature
+from sklearn.svm import SVR
 
 from .files import Files
 from .parameters import FileParam, ExperimentParam, ChannelParams, RelativeChannelParams, \
@@ -60,12 +61,31 @@ class Background(FileParam, luigi.Task):
 
     def run(self):
         with self.subtasks() as ims:
-            bg = np.empty(len(ims))
-            smo_rv = background._smo_rv(2, self.sigma, self.window)
+            bg = np.memmap(self.output().path, dtype=np.float32, mode='w+', shape=ims.shape)
             for i, im in enumerate(ims):
-                bg_rv = background.bg_rv(im, self.sigma, self.window, threshold=self.threshold, smo_rv=smo_rv)
-                bg[i] = bg_rv.median()
-        self.output().save(bg)
+                bg[i] = self.calc_background(im)
+        del bg  # Flush
+
+    def calc_background(self, image):
+        smo = functions.smo(image, self.sigma, self.window)
+        smo_rv = functions.smo_rv(image.ndim, self.sigma, self.window)
+        smo_mask = feature.peak_local_max(-smo, min_distance=5, indices=False)
+        smo_mask &= smo < smo_rv.ppf(self.threshold)
+        smo_mask &= smo > smo_rv.ppf(0.01)
+        med, *iqr = np.percentile(image[smo_mask], (50, 25, 75))
+        smo_mask &= image < med + 3 * np.diff(iqr)
+
+        svr = SVR(gamma='scale')
+        X, y = np.array(np.nonzero(smo_mask)).T, image[smo_mask]
+        svr.fit(X, y)
+
+        z = np.empty(image.shape)
+        x = np.arange(z.shape[1])[:, None] * np.arange(2)
+        for i in range(z.shape[0]):
+            z[i] = svr.predict(x)
+            x[:, 0] += 1
+
+        return z
 
 
 class Shift(ExperimentParam, ChannelParams, RelativeChannelParams, luigi.Task):
@@ -174,7 +194,7 @@ class CorrectedImage(luigi.WrapperTask, CorrectedImageParams):
 
     def corrected_image(self, item):
         im = self.ims[item] / self.image_exposure
-        bg = self.bg[item, None, None] / self.image_exposure
+        bg = self.bg[item] / self.image_exposure
         normalization = (self.normalization[0] - self.normalization_background) / self.normalization_exposure
         shift = -self.shift.astype(int)
         return np.roll((im - bg) / normalization, shift, axis=self.axis)
@@ -210,8 +230,12 @@ class CorrectedBackground(CorrectedImageParams, luigi.Task):
     def run(self):
         with self.subtasks() as ims:
             bg_rvs = {}
-            smo_rv = background._smo_rv(2, self.sigma, self.window)
+            smo_rv = functions.smo_rv(2, self.sigma, self.window)
             for i, im in enumerate(ims):
-                bg_rv = background.bg_rv(im, self.sigma, self.window, threshold=self.threshold, smo_rv=smo_rv)
+                smo_mask = background.smo_mask(im, self.sigma, self.window, threshold=self.threshold, smo_rv=smo_rv)
+                bg = im[smo_mask]
+                med, *iqr = np.percentile(bg, (50, 25, 75))
+                bg = bg[bg < med + 10 * np.diff(iqr)]
+                bg_rv = functions.HistogramRV.from_data(bg)
                 bg_rvs[str(i)] = bg_rv._histogram
         self.output().save(**bg_rvs)
