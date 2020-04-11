@@ -61,7 +61,9 @@ class Background(FileParam, luigi.Task):
 
     def run(self):
         with self.subtasks() as ims:
-            bg = np.memmap(self.output().path, dtype=np.float32, mode='w+', shape=ims.shape)
+            # I'm creating the file before finishing the computation.
+            # If it fails, it will be marked as complete. FIXME
+            bg = np.lib.format.open_memmap(self.output().path, dtype=np.float32, mode='w+', shape=ims.shape)
             for i, im in enumerate(ims):
                 bg[i] = self.calc_background(im)
         del bg  # Flush
