@@ -5,6 +5,7 @@ import numpy as np
 from cellment import functions, background
 from donkeykong.target import LocalNpy, LocalNpz, LocalTiff, LocalJSON
 from luigi.util import delegates
+from scipy import interpolate
 from skimage import feature
 from sklearn.svm import SVR
 
@@ -57,18 +58,16 @@ class Background(FileParam, luigi.Task):
         return MaskedImage(path=self.path)
 
     def output(self):
-        return LocalNpy(self.to_results_file('.bg.npy'))
+        return LocalNpz(self.to_results_file('.bg.npz'))
 
     def run(self):
         with self.subtasks() as ims:
-            # I'm creating the file before finishing the computation.
-            # If it fails, it will be marked as complete. FIXME
-            bg = np.lib.format.open_memmap(self.output().path, dtype=np.float32, mode='w+', shape=ims.shape)
+            bgs = {}
             for i, im in enumerate(ims):
-                bg[i] = self.calc_background(im)
-        del bg  # Flush
+                bgs[str(i)] = self.calc_background(im)
+        self.output().save(**bgs)
 
-    def calc_background(self, image):
+    def calc_background(self, image, d=15):
         smo = functions.smo(image, self.sigma, self.window)
         smo_rv = functions.smo_rv(image.ndim, self.sigma, self.window)
         smo_mask = feature.peak_local_max(-smo, min_distance=5, indices=False)
@@ -81,13 +80,28 @@ class Background(FileParam, luigi.Task):
         X, y = np.array(np.nonzero(smo_mask)).T, image[smo_mask]
         svr.fit(X, y)
 
-        z = np.empty(image.shape)
-        x = np.arange(z.shape[1])[:, None] * np.arange(2)
-        for i in range(z.shape[0]):
-            z[i] = svr.predict(x)
-            x[:, 0] += 1
+        ymax, xmax = image.shape
+        grid = np.mgrid[0:ymax:d, 0:xmax:d]
+        y, x = grid[0, :, 0], grid[1, 0]
+        z = svr.predict(grid.reshape(2, -1).T).reshape(grid[0].shape)
+        return x, y, z
 
+    def interpolate_background(self, x, y, z, shape):
+        inter = interpolate.RectBivariateSpline(y, x, z)
+        y, x = map(np.arange, shape)
+        z = inter(y, x)
         return z
+
+    def get_background(self, i, shape):
+        npz = self.npz
+        return self.interpolate_background(*npz[str(i)], shape)
+
+    def open(self):
+        self.npz = self.output().open()
+        return self
+
+    def close(self):
+        self.npz.close()
 
 
 class Shift(ExperimentParam, ChannelParams, RelativeChannelParams, luigi.Task):
@@ -165,41 +179,43 @@ class CorrectedImage(luigi.WrapperTask, CorrectedImageParams):
     """
 
     def subtasks(self):
-        return MaskedImage(path=self.path)
+        return {'image': MaskedImage(path=self.path)}
 
     def requires(self):
         return {'background': Background(path=self.path),
                 'shift': Shift(experiment_path=self.experiment_path,
                                fluorophore=self.fluorophore,
                                polarization=self.polarization),
-                'normalization': Normalization(path=self.normalization_path),
+                # 'normalization': Normalization(path=self.normalization_path),
                 'image_metadata': Metadata(path=self.path),
-                'normalization_metadata': Metadata(path=self.normalization_path)}
+                # 'normalization_metadata': Metadata(path=self.normalization_path)
+                }
 
     def open(self):
         with ExitStack() as cm:
-            self.ims = cm.enter_context(self.subtasks())
-            self.bg = cm.enter_context(self.input()['background'])
+            self.ims = cm.enter_context(self.subtasks()['image'])
+            self.bgs = cm.enter_context(self.requires()['background'])
             self.shift = cm.enter_context(self.input()['shift'])
-            self.normalization = cm.enter_context(self.input()['normalization'].open())
+            # self.normalization = cm.enter_context(self.input()['normalization'].open())
             self._stack = cm.pop_all()
 
         self.axis = tuple(range(-len(self.shift), 0))
         self.image_exposure = float(self.input()['image_metadata'].open()['ExposureTime1'])
-        normalization_metadata = self.input()['normalization_metadata'].open()
-        self.normalization_exposure = float(normalization_metadata['ExposureTime'])
-        self.normalization_background = float(normalization_metadata['Background'])
+        # normalization_metadata = self.input()['normalization_metadata'].open()
+        # self.normalization_exposure = float(normalization_metadata['ExposureTime'])
+        # self.normalization_background = float(normalization_metadata['Background'])
         return self
 
     def close(self):
         self._stack.close()
 
     def corrected_image(self, item):
-        im = self.ims[item] / self.image_exposure
-        bg = self.bg[item] / self.image_exposure
-        normalization = (self.normalization[0] - self.normalization_background) / self.normalization_exposure
+        im = self.ims[item]
+        bg = self.bgs.get_background(item, im.shape)
+        im = (im - bg) / self.image_exposure
+        # normalization = (self.normalization[0] - self.normalization_background) / self.normalization_exposure
         shift = -self.shift.astype(int)
-        return np.roll((im - bg) / normalization, shift, axis=self.axis)
+        return np.roll(im, shift, axis=self.axis)
 
     def __getitem__(self, item):
         if isinstance(item, tuple):
