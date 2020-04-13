@@ -196,14 +196,14 @@ class CorrectedImage(luigi.WrapperTask, CorrectedImageParams):
             self.ims = cm.enter_context(self.subtasks()['image'])
             self.bgs = cm.enter_context(self.requires()['background'])
             self.shift = cm.enter_context(self.input()['shift'])
-            # self.normalization = cm.enter_context(self.input()['normalization'].open())
+            self.normalization = cm.enter_context(self.input()['normalization'].open())
             self._stack = cm.pop_all()
 
         self.axis = tuple(range(-len(self.shift), 0))
         self.image_exposure = float(self.input()['image_metadata'].open()['ExposureTime1'])
-        # normalization_metadata = self.input()['normalization_metadata'].open()
-        # self.normalization_exposure = float(normalization_metadata['ExposureTime'])
-        # self.normalization_background = float(normalization_metadata['Background'])
+        normalization_metadata = self.input()['normalization_metadata'].open()
+        self.normalization_exposure = float(normalization_metadata['ExposureTime'])
+        self.normalization_background = float(normalization_metadata['Background'])
         return self
 
     def close(self):
@@ -213,9 +213,9 @@ class CorrectedImage(luigi.WrapperTask, CorrectedImageParams):
         im = self.ims[item]
         bg = self.bgs.get_background(item, im.shape)
         im = (im - bg) / self.image_exposure
-        # normalization = (self.normalization[0] - self.normalization_background) / self.normalization_exposure
+        normalization = (self.normalization[0] - self.normalization_background) / self.normalization_exposure
         shift = -self.shift.astype(int)
-        return np.roll(im, shift, axis=self.axis)
+        return np.roll(im / normalization, shift, axis=self.axis)
 
     def __getitem__(self, item):
         if isinstance(item, tuple):
