@@ -61,18 +61,15 @@ class Background(FileParam, luigi.Task):
         return LocalNpz(self.to_results_file('.bg.npz'))
 
     def run(self):
+        smo_rv = functions.smo_rv(2, self.sigma, self.window)
         with self.subtasks() as ims:
             bgs = {}
             for i, im in enumerate(ims):
-                bgs[str(i)] = self.calc_background(im)
+                bgs[str(i)] = self.calc_background(im, smo_rv=smo_rv)
         self.output().save(**bgs)
 
-    def calc_background(self, image, d=15):
-        smo = functions.smo(image, self.sigma, self.window)
-        smo_rv = functions.smo_rv(image.ndim, self.sigma, self.window)
-        smo_mask = feature.peak_local_max(-smo, min_distance=5, indices=False)
-        smo_mask &= smo < smo_rv.ppf(self.threshold)
-        smo_mask &= smo > smo_rv.ppf(0.01)
+    def calc_background(self, image, smo_rv, d=15):
+        smo_mask = background.smo_mask(image, self.sigma, self.window, self.threshold, smo_rv=smo_rv)
         med, *iqr = np.percentile(image[smo_mask], (50, 25, 75))
         smo_mask &= image < med + 3 * np.diff(iqr)
 
@@ -81,7 +78,7 @@ class Background(FileParam, luigi.Task):
         svr.fit(X, y)
 
         ymax, xmax = image.shape
-        grid = np.mgrid[0:ymax:d, 0:xmax:d]
+        grid = np.mgrid[0:ymax + d:d, 0:xmax + d:d]
         y, x = grid[0, :, 0], grid[1, 0]
         z = svr.predict(grid.reshape(2, -1).T).reshape(grid[0].shape)
         return x, y, z
