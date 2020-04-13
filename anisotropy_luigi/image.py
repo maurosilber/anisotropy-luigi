@@ -183,9 +183,9 @@ class CorrectedImage(luigi.WrapperTask, CorrectedImageParams):
                 'shift': Shift(experiment_path=self.experiment_path,
                                fluorophore=self.fluorophore,
                                polarization=self.polarization),
-                # 'normalization': Normalization(path=self.normalization_path),
+                'normalization': Normalization(path=self.normalization_path),
                 'image_metadata': Metadata(path=self.path),
-                # 'normalization_metadata': Metadata(path=self.normalization_path)
+                'normalization_metadata': Metadata(path=self.normalization_path)
                 }
 
     def open(self):
