@@ -69,9 +69,17 @@ class Background(FileParam, luigi.Task):
         self.output().save(**bgs)
 
     def calc_background(self, image, smo_rv, d=15):
-        smo_mask = background.smo_mask(image, self.sigma, self.window, self.threshold, smo_rv=smo_rv)
+        smo = functions.smo(image, self.sigma, self.window)
+        smo_mask = (smo < smo_rv.ppf(0.1)) & ~image.mask
         med, *iqr = np.percentile(image[smo_mask], (50, 25, 75))
         smo_mask &= image < med + 3 * np.diff(iqr)
+
+        for min_dist in range(1, 30):
+            dist_mask = feature.peak_local_max(-smo, min_distance=min_dist, indices=False)
+            dist_mask &= smo_mask
+            if dist_mask.sum() < 5_000:
+                smo_mask = dist_mask
+                break
 
         svr = SVR(gamma='scale')
         X, y = np.array(np.nonzero(smo_mask)).T, image[smo_mask]
