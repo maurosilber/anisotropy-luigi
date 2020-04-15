@@ -122,7 +122,7 @@ class Shift(ExperimentParam, ChannelParams, RelativeChannelParams, luigi.Task):
         if (self.fluorophore == self.relative_fluorophore) and (self.polarization == self.relative_polarization):
             self.output().save((0., 0.))
         else:
-            df = self.input().open()
+            df = self.requires().get_files()
             df = df[df['experiment_path'] == self.experiment_path]
             shifts = []
             for _, dg in df.groupby('position'):

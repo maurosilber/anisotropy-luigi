@@ -53,12 +53,17 @@ sensor_data = pd.DataFrame({'fluorophore': ['Cit', 'BFP', 'Kate'],
                             'delta_brightness': [0.17, 0.15, -0.15]}
                            ).set_index('fluorophore')
 
+exclude = {'20181024': (8,)}
 
 class Files(DirectoryParams, luigi.Task):
     """Generates a Pandas DataFrame with image file paths and associated metadata such as date, position, etc."""
 
     def output(self):
         return LocalPandasPickle(pathlib.Path(self.results_path) / 'files.pandas')
+
+    def get_files(self):
+        files = self.output().open()
+        return files[~files.exclude]
 
     def run(self):
         data_path = pathlib.Path(self.data_path)
@@ -104,5 +109,12 @@ class Files(DirectoryParams, luigi.Task):
 
         # Time steps
         df['time_steps'] = df.date.apply(lambda x: time_steps[x])
+
+        # Exclude from analisis
+        df['exclude'] = False
+        for date, positions in exclude.items():
+            cond = df.date == date
+            for position in positions:
+                df.loc[cond & (df.position == position), 'exclude'] = True
 
         self.output().save(df)

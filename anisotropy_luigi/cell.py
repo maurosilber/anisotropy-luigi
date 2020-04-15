@@ -134,7 +134,7 @@ class CurvesSummary(DirectoryParams, RelativeChannelParams, luigi.Task):
         files = Files()
         if not files.complete():
             files.run()
-        df = files.output().open()
+        df = files.get_files()
 
         # Yielding all tasks
         for (date, position), dg in df.groupby(['date', 'position']):
@@ -178,7 +178,7 @@ class AnisotropyJumps(DirectoryParams, RelativeChannelParams, luigi.Task):
         return LocalPandasPickle(self.results_path / 'anisotropy_jumps.pandas')
 
     def run(self):
-        files = self.input()['files'].open().set_index(['date', 'position']).sort_index()
+        files = self.requires()['files'].get_files().set_index(['date', 'position']).sort_index()
 
         curves_summary = self.input()['curve_summary'].open()
         curves_summary = (curves_summary.query('length > 50')
