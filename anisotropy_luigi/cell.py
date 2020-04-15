@@ -239,3 +239,27 @@ class AnisotropyJumps(DirectoryParams, RelativeChannelParams, luigi.Task):
     def full_mask(masks, dilation):
         masks = (ndimage.binary_dilation(mask, np.ones(dilation)) for mask in masks)
         return reduce(np.logical_or, masks)
+
+
+class JumpCurves(DirectoryParams, luigi.Task):
+    def requires(self):
+        return {'files': Files(), 'jumps': AnisotropyJumps()}
+
+    def output(self):
+        return LocalNpz(self.results_path / 'jump_curves.npz')
+
+    def run(self):
+        files = self.requires()['files'].get_files().set_index(['date', 'position']).sort_index()
+        results = self.input()['jumps'].open()
+
+        keys = ('index', 'cell_size',
+                'BFP_parallel_intensity', 'BFP_perpendicular_intensity',
+                'Kate_parallel_intensity', 'Kate_perpendicular_intensity',
+                'Cit_parallel_intensity', 'Cit_perpendicular_intensity')
+        data = {}
+        for g, dg in results.groupby(['date', 'position']):
+            with Anisotropy(dg=files.loc[g].reset_index().to_dict('index')) as ani:
+                for label in dg.label:
+                    for key in keys:
+                        data[f'{g[0]}_{g[1]}_{label}_{key}'] = ani.npz[f'{label}_{key}']
+        self.output().save(**data)

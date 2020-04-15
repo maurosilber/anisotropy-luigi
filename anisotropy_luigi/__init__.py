@@ -9,7 +9,7 @@ configuration.add_config_path('luigi.cfg')  # Re-adds luigi.cfg as first place t
 from .files import Files
 from .image import CorrectedImage
 from .tracking import TrackedLabels
-from .cell import AnisotropyJumps
+from .cell import JumpCurves
 
 
 class RunAll(luigi.WrapperTask):
@@ -21,4 +21,4 @@ class RunAll(luigi.WrapperTask):
         super().__init__(*args, **kwargs)
 
     def requires(self):
-        return AnisotropyJumps()
+        return JumpCurves()
