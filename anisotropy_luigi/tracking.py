@@ -1,7 +1,7 @@
 import luigi
 import numpy as np
-from cellment import tracking
-from donkeykong.target import LocalNpy
+from cellment import tracking, plotting
+from donkeykong.target import LocalNpy, LocalJSON
 from luigi.util import delegates
 
 from .image import CorrectedImage
@@ -42,3 +42,18 @@ class TrackedLabels(CorrectedImageParams, luigi.Task):
                 tracked_labels[node.time][labels[node.time] == node.label] = new_label
 
         self.output().save(tracked_labels)
+
+
+class ColorMap(CorrectedImageParams, luigi.Task):
+
+    def requires(self):
+        return TrackedLabels(**self.corrected_image_params)
+
+    def output(self):
+        return LocalJSON(self.to_results_file('.colormap.json'))
+
+    def run(self):
+        with self.input() as labels:
+            colormap = plotting.color_mapping(labels)
+        colormap = {int(k): int(v) for k, v in colormap.items()}  # Convert to int
+        self.output().save(colormap)
