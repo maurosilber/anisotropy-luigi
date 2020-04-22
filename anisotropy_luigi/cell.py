@@ -23,53 +23,73 @@ class Intensities(DirectoryParams, RelativeChannelParams, luigi.Task):
     dg = luigi.DictParameter()
 
     @property
-    def indexed_dg(self):
+    def dgs(self):
         """Indexed by channels."""
-        return pd.DataFrame.from_dict(self.dg, 'index').set_index(['fluorophore', 'polarization'], drop=False)
+        return pd.DataFrame.from_dict(self.dg, 'index')
 
     def subtasks(self):
-        return {k: CorrectedImage.from_dict(d) for k, d in self.indexed_dg.iterrows()}
+        subtasks = {}
+        for fp, dg in self.dgs.groupby('fluorophore'):
+            subtasks[fp] = dg.set_index('polarization', drop=False).apply(CorrectedImage.from_dict, axis=1).to_dict()
+        return subtasks
 
     def requires(self):
-        d_relative = self.indexed_dg.loc[(self.relative_fluorophore, self.relative_polarization)]
+        d_relative = (self.dgs
+            .set_index(['fluorophore', 'polarization'], drop=False)
+            .loc[(self.relative_fluorophore, self.relative_polarization)])
         return TrackedLabels.from_dict(d_relative)
 
     def output(self):
-        d = self.indexed_dg.iloc[0]
-        path, position = pathlib.Path(d.path), d.position
+        key = next(iter(self.dg))
+        d = self.dg[key]
+        path, position = pathlib.Path(d['path']), d['position']
         return LocalNpz(self.to_results_path(path.with_name(f'{position}.cell.npz')))
 
     def run(self):
         tracked_labels = self.input().open()
         labels = np.arange(1, tracked_labels.max() + 1)
-        channels = self.subtasks().keys()
 
-        cell_sizes = np.empty((len(tracked_labels), labels.size))
-        intensities = {k: np.empty((len(tracked_labels), labels.size)) for k in channels}
-
+        # Count number of pixels per label
+        cell_sizes = np.empty((len(tracked_labels), labels.size), dtype=np.int32)
+        cell_on_border = np.zeros((len(tracked_labels), labels.size), dtype=bool)
         for i, tracked_label in enumerate(tracked_labels):
             count, _ = _stats(tracked_label, tracked_label, labels)
             cell_sizes[i] = count
 
-        for k, v in self.subtasks().items():
-            with v as ims:
-                for i, (im, tracked_label) in enumerate(zip(ims, tracked_labels)):
+            # # If labeled object is next to the image borders, don't consider its intensity.
+            edges = (tracked_label[0], tracked_label[:, 0], tracked_label[-1], tracked_label[:, -1])
+            labels_in_edges = reduce(np.union1d, edges)
+            labels_in_edges = labels_in_edges[np.nonzero(labels_in_edges)]
+            cell_on_border[i][labels_in_edges - 1] = True
+
+        intensities = {}
+        for fp, v in self.subtasks().items():
+            intensities[(fp, 'non-saturated')] = np.empty((len(tracked_labels), labels.size))
+            intensities[(fp, 'parallel')] = np.empty((len(tracked_labels), labels.size))
+            intensities[(fp, 'perpendicular')] = np.empty((len(tracked_labels), labels.size))
+            ims_par, ims_per = v['parallel'], v['perpendicular']
+            with ims_par, ims_per:
+                for i, (im_par, im_per, tracked_label) in enumerate(zip(ims_par, ims_per, tracked_labels)):
                     # im has a mask where it's saturated.
-                    intensities[k][i] = ndimage.sum(im.filled(np.nan), tracked_label, labels)
+                    mask = im_par.mask | im_per.mask  # If any polarization is saturated
+                    tracked_label = np.ma.masked_array(tracked_label, mask).filled(0)  # Set as background (0)
 
-                    # If labeled object is next to the image borders, don't consider its intensity.
-                    edges = (tracked_label[0], tracked_label[:, 0], tracked_label[-1], tracked_label[:, -1])
-                    labels_in_edges = reduce(np.union1d, edges)
-                    labels_in_edges = labels_in_edges[np.nonzero(labels_in_edges)]
-                    intensities[k][i][labels_in_edges - 1] = np.nan
+                    # Count non saturated pixels
+                    intensities[(fp, 'non-saturated')][i] = _stats(tracked_label, tracked_label, labels)[0]
+                    # Sum non saturated intensities
+                    intensities[(fp, 'parallel')][i] = ndimage.sum(im_par.filled(0), tracked_label, labels)
+                    intensities[(fp, 'perpendicular')][i] = ndimage.sum(im_per.filled(0), tracked_label, labels)
 
-        data = {'labels': labels, 'channels': list(channels)}
+        data = {'labels': labels}
         for i, (label, cell_size) in enumerate(zip(labels, cell_sizes.T)):
             cond = np.where(cell_size > 0)[0]
             data[f'{label}_index'] = cond
             data[f'{label}_cell_size'] = cell_size[cond]
+            data[f'{label}_cell_on_border'] = cell_on_border[:, i][cond]
             for (fluorophore, polarization), intensity in intensities.items():
                 data[f'{label}_{fluorophore}_{polarization}_intensity'] = intensity[:, i][cond]
+        data['fluorophores'] = self.dgs.fluorophore.unique()
+        data['channels'] = list(data.keys())
 
         self.output().save(**data)
 
@@ -94,6 +114,9 @@ class Anisotropy(luigi.WrapperTask, DirectoryParams, RelativeChannelParams):
 
     def cell_size(self, label):
         return self.npz[f'{label}_cell_size']
+
+    def cell_on_border(self, label):
+        return self.npz[f'{label}_cell_on_border']
 
     def intensity(self, polarization, fluorophore, label):
         return self.npz[f'{label}_{fluorophore}_{polarization}_intensity']
@@ -123,7 +146,7 @@ class Anisotropy(luigi.WrapperTask, DirectoryParams, RelativeChannelParams):
 
     @property
     def fluorophores(self):
-        return np.unique(self.npz['channels'][:, 0])
+        return self.npz['fluorophores']
 
 
 class CurvesSummary(DirectoryParams, RelativeChannelParams, luigi.Task):
@@ -152,13 +175,14 @@ class CurvesSummary(DirectoryParams, RelativeChannelParams, luigi.Task):
                 for label in ani.labels:
                     data = {**group_data, 'label': label,
                             'cell_size': np.median(ani.cell_size(label)),
+                            'cell_border': np.any(ani.cell_on_border(label)),
                             'length': min((~np.isnan(ani.anisotropy(fp, label))).sum() for fp in ani.fluorophores)
                             }
 
                     for fp in ani.fluorophores:
-                        data[f'{fp}_total_intensity'] = np.nanmedian(ani.total_intensity(fp, label))
-                        data[f'{fp}_mean_intensity'] = np.nanmedian(ani.mean_intensity(fp, label))
-                        data[f'{fp}_anisotropy_iqr'] = stats.iqr(np.diff(ani.anisotropy(fp, label)), nan_policy='omit')
+                        data[f'{fp}_total_intensity'] = np.median(ani.total_intensity(fp, label))
+                        data[f'{fp}_mean_intensity'] = np.median(ani.mean_intensity(fp, label))
+                        data[f'{fp}_anisotropy_iqr'] = stats.iqr(np.diff(ani.anisotropy(fp, label)))
                     df.append(data)
 
         df = pd.DataFrame(df)
