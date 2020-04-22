@@ -7,8 +7,8 @@ import pandas as pd
 from anisotropy import functions as anifuncs
 from donkeykong.target import LocalNpz, LocalPandasPickle
 from luigi.util import delegates
-from scipy import ndimage
-from scipy import stats
+from scipy import ndimage, stats
+from scipy.ndimage.filters import median_filter
 from scipy.ndimage.measurements import _stats
 
 from .files import Files
@@ -19,18 +19,20 @@ from .tracking import TrackedLabels
 
 @delegates
 class Intensities(DirectoryParams, RelativeChannelParams, luigi.Task):
-    """Calculates intensities curves for each cell."""
+    """Calculate intensities curves for each cell."""
     dg = luigi.DictParameter()
 
     @property
     def dgs(self):
-        """Indexed by channels."""
         return pd.DataFrame.from_dict(self.dg, 'index')
 
     def subtasks(self):
         subtasks = {}
         for fp, dg in self.dgs.groupby('fluorophore'):
-            subtasks[fp] = dg.set_index('polarization', drop=False).apply(CorrectedImage.from_dict, axis=1).to_dict()
+            subtasks[fp] = (dg
+                            .set_index('polarization', drop=False)
+                            .apply(CorrectedImage.from_dict, axis=1)
+                            .to_dict())
         return subtasks
 
     def requires(self):
@@ -89,13 +91,15 @@ class Intensities(DirectoryParams, RelativeChannelParams, luigi.Task):
             for (fluorophore, polarization), intensity in intensities.items():
                 data[f'{label}_{fluorophore}_{polarization}_intensity'] = intensity[:, i][cond]
         data['fluorophores'] = self.dgs.fluorophore.unique()
-        data['channels'] = list(data.keys())
 
         self.output().save(**data)
 
 
-class Anisotropy(luigi.WrapperTask, DirectoryParams, RelativeChannelParams):
-    """Calculates anisotropy curves for each cell."""
+class CellCurves(luigi.WrapperTask, DirectoryParams, RelativeChannelParams):
+    """Calculate curves for each cell.
+
+    Intensity, anisotropy, cell size.
+    """
     dg = luigi.DictParameter()
     npz = None
 
@@ -121,6 +125,9 @@ class Anisotropy(luigi.WrapperTask, DirectoryParams, RelativeChannelParams):
     def intensity(self, polarization, fluorophore, label):
         return self.npz[f'{label}_{fluorophore}_{polarization}_intensity']
 
+    def non_saturated_size(self, fluorophore, label):
+        return self.npz[f'{label}_{fluorophore}_non-saturated_intensity']
+
     def total_intensity(self, fluorophore, label):
         return anifuncs.total_intensity(self.intensity('parallel', fluorophore, label),
                                         self.intensity('perpendicular', fluorophore, label))
@@ -141,15 +148,11 @@ class Anisotropy(luigi.WrapperTask, DirectoryParams, RelativeChannelParams):
         return self.labels.max()
 
     @property
-    def channels(self):
-        return self.npz['channels']
-
-    @property
     def fluorophores(self):
         return self.npz['fluorophores']
 
 
-class CurvesSummary(DirectoryParams, RelativeChannelParams, luigi.Task):
+class CellsSummary(DirectoryParams, RelativeChannelParams, luigi.Task):
     """DataFrame with a summary for each cell."""
 
     def requires(self):
@@ -161,28 +164,33 @@ class CurvesSummary(DirectoryParams, RelativeChannelParams, luigi.Task):
 
         # Yielding all tasks
         for (date, position), dg in df.groupby(['date', 'position']):
-            yield Anisotropy(dg=dg.to_dict('index'))
+            yield CellCurves(dg=dg.to_dict('index'))
 
     def output(self):
         return LocalPandasPickle(self.results_path / 'curves_summary.pandas')
 
     def run(self):
         df = []
-        for anisotropy in self.requires():
-            row = next(iter(anisotropy.dg.values()))
+        for curves in self.requires():
+            row = next(iter(curves.dg.values()))
             group_data = {key: row[key] for key in ('date', 'position')}
-            with anisotropy as ani:
-                for label in ani.labels:
+            with curves:
+                for label in curves.labels:
                     data = {**group_data, 'label': label,
-                            'cell_size': np.median(ani.cell_size(label)),
-                            'cell_border': np.any(ani.cell_on_border(label)),
-                            'length': min((~np.isnan(ani.anisotropy(fp, label))).sum() for fp in ani.fluorophores)
+                            'cell_size': np.median(curves.cell_size(label)),
+                            'cell_border': np.any(curves.cell_on_border(label)),
                             }
 
-                    for fp in ani.fluorophores:
-                        data[f'{fp}_total_intensity'] = np.median(ani.total_intensity(fp, label))
-                        data[f'{fp}_mean_intensity'] = np.median(ani.mean_intensity(fp, label))
-                        data[f'{fp}_anisotropy_iqr'] = stats.iqr(np.diff(ani.anisotropy(fp, label)))
+                    for fp in curves.fluorophores:
+                        data[f'{fp}_length'] = np.sum(curves.non_saturated_size(fp, label) > 0)
+                        data[f'{fp}_total_intensity'] = np.median(curves.total_intensity(fp, label))
+                        data[f'{fp}_mean_intensity'] = np.median(curves.mean_intensity(fp, label))
+                        anisotropy = curves.anisotropy(fp, label)
+                        data[f'{fp}_anisotropy_min'] = np.min(anisotropy)
+                        data[f'{fp}_anisotropy_max'] = np.max(anisotropy)
+                        data[f'{fp}_anisotropy_median'] = np.median(anisotropy)
+                        data[f'{fp}_anisotropy_iqr'] = stats.iqr(np.diff(anisotropy))
+                    data['length'] = max(data[f'{fp}_length'] for fp in curves.fluorophores)
                     df.append(data)
 
         df = pd.DataFrame(df)
@@ -190,13 +198,19 @@ class CurvesSummary(DirectoryParams, RelativeChannelParams, luigi.Task):
 
 
 class AnisotropyJumps(DirectoryParams, RelativeChannelParams, luigi.Task):
+    # Summary parameters
+    min_length = luigi.IntParameter()
+    anisotropy_min = luigi.FloatParameter()
+    anisotropy_max = luigi.FloatParameter()
+    # Jump detection parameters
     filter_size = luigi.IntParameter()
+    size_change_threshold = luigi.FloatParameter()
     jump_threshold = luigi.FloatParameter()
     z_score_threshold = luigi.FloatParameter()
     jump_window_dilation = luigi.IntParameter()
 
     def requires(self):
-        return {'files': Files(), 'curve_summary': CurvesSummary()}
+        return {'files': Files(), 'cells_summary': CellsSummary()}
 
     def output(self):
         return LocalPandasPickle(self.results_path / 'anisotropy_jumps.pandas')
@@ -204,42 +218,55 @@ class AnisotropyJumps(DirectoryParams, RelativeChannelParams, luigi.Task):
     def run(self):
         files = self.requires()['files'].get_files().set_index(['date', 'position']).sort_index()
 
-        curves_summary = self.input()['curve_summary'].open()
-        curves_summary = (curves_summary.query('length > 50')
-                          .query('BFP_anisotropy_iqr < 0.2')
-                          .query('Kate_anisotropy_iqr < 0.2'))
+        # Prefilter cells from summary
+        df_sum = self.input()['cells_summary'].open()
+        # Filter cells with too few time points
+        df_sum = df_sum.query(f'length > {self.min_length}')
+        # Filter cells where no anisotropy channel is in the expected range
+        cond = False
+        for fp in ['BFP', 'Cit', 'Kate']:
+            cond |= ((df_sum[f'{fp}_anisotropy_min'] < self.anisotropy_max)
+                     & (df_sum[f'{fp}_anisotropy_max'] > self.anisotropy_min))
+        df_sum = df_sum[cond]
 
         df = []
-        for row in curves_summary.itertuples():
+        for row in df_sum.itertuples():
             dg = files.loc[(row.date, row.position)]
-            with Anisotropy(dg=dg.reset_index().to_dict('index')) as ani:
-                data = {}
-                time = ani.time(row.label)
 
-                for fp in ani.fluorophores:
-                    a = ani.anisotropy(fp, row.label)
-                    data[fp] = self.jump_filter(a, self.filter_size)
+            # Calculate parameter per channel to detect jump
+            with CellCurves(dg=dg.reset_index().to_dict('index')) as c:
+                time = c.time(row.label)
+                border = c.cell_on_border(row.label)
+                cell_size = c.cell_size(row.label)
+                data = {fp: self.jump_filter(cell_size, c.anisotropy(fp, row.label), self.filter_size)
+                        for fp in c.fluorophores}
 
-            masks = (self.discriminator(d['diff'], d['z_score'], self.jump_threshold, self.z_score_threshold) for d in
-                     data.values())
+            # Find a global mask of jump regions
+            masks = (self.discriminator(d['diff'], d['z_score'], d['size_change'], border) for d in data.values())
             full_mask = self.full_mask(masks, dilation=self.jump_window_dilation)
             jumps, _ = ndimage.label(full_mask)
+
+            # For each region, calculates location of jump (if any)
             full_mask = np.invert(full_mask, out=full_mask)  # np.ma.masked_array needs the inverse
             for jump_slice in ndimage.find_objects(jumps):
                 jump_row = dict(row._asdict())
                 for fp, d in data.items():
+                    d = d.iloc[jump_slice]
                     try:
-                        jump = np.ma.masked_array(d['median'][jump_slice], full_mask[jump_slice])
-                        jump_row[f'{fp}_jump_max'] = np.nanmax(jump)
-                        jump_row[f'{fp}_jump_min'] = np.nanmin(jump)
+                        jump_row[f'{fp}_jump_max'] = d['median'].max()
+                        jump_row[f'{fp}_jump_min'] = d['median'].min()
 
-                        ix = np.nanargmax(np.ma.masked_array(d['diff'][jump_slice], full_mask[jump_slice]))
-                        jump_row[f'{fp}_jump_diff'] = d['diff'][jump_slice][ix]
-                        jump_row[f'{fp}_jump_z_score'] = d['z_score'][jump_slice][ix]
-                        jump_row[f'{fp}_jump_time'] = time[jump_slice][ix]
+                        ix = d['diff'].idxmax()
+                        jump_row[f'{fp}_jump_diff'] = d['diff'].loc[ix]
+                        jump_row[f'{fp}_jump_z_score'] = d['z_score'][ix]
+                        jump_row[f'{fp}_jump_time'] = time[ix]
                     except ValueError:  # All-NaN slices
                         for key in ('max', 'min', 'diff', 'z_score', 'time'):
                             jump_row[f'{fp}_jump_{key}'] = np.nan
+
+                jump_row['size_max'] = d['size_median'].max()
+                jump_row['size_min'] = d['size_median'].min()
+                jump_row['size_change'] = d['size_change'].min()
 
                 df.append(jump_row)
 
@@ -247,17 +274,22 @@ class AnisotropyJumps(DirectoryParams, RelativeChannelParams, luigi.Task):
         self.output().save(df)
 
     @staticmethod
-    def jump_filter(anisotropy, size):
-        median = ndimage.filters.median_filter(anisotropy, size=size)
-        mad = 1.4826 * ndimage.filters.median_filter(np.abs(anisotropy - median), size=size)
-        diff = median[size:] - median[:-size]
-        mad_sum = np.sqrt(mad[size:] ** 2 + mad[:-size] ** 2)
-        z_score = diff / mad_sum
-        return {'median': median[size:], 'diff': diff, 'z_score': z_score}
+    def jump_filter(cell_size, anisotropy, size):
+        data = pd.DataFrame()
+        data['size_median'] = median_filter(cell_size, size=size)
+        data['size_change'] = np.exp(np.log(data.size_median).diff(size))
+        data['median'] = median_filter(anisotropy, size=size)
+        data['mad'] = 1.4826 * median_filter(np.abs(anisotropy - data['median']), size=size)
+        data['diff'] = data['median'].diff(size)
+        data['z_score'] = data['diff'] / np.sqrt((data['mad'] ** 2).rolling(size).sum())
+        return data
 
-    @staticmethod
-    def discriminator(diff, z_score, jump_threshold, z_score_threshold):
-        return (diff > jump_threshold) & (np.abs(z_score) > z_score_threshold)
+    def discriminator(self, diff, z_score, size_change, border):
+        # Excludes if area does not diminish when not in border
+        cond = (size_change < self.size_change_threshold) | border
+        cond &= diff > self.jump_threshold
+        cond &= z_score > self.z_score_threshold
+        return cond
 
     @staticmethod
     def full_mask(masks, dilation):
@@ -276,13 +308,13 @@ class JumpCurves(DirectoryParams, luigi.Task):
         files = self.requires()['files'].get_files().set_index(['date', 'position']).sort_index()
         results = self.input()['jumps'].open()
 
-        keys = ('index', 'cell_size',
-                'BFP_parallel_intensity', 'BFP_perpendicular_intensity',
-                'Kate_parallel_intensity', 'Kate_perpendicular_intensity',
-                'Cit_parallel_intensity', 'Cit_perpendicular_intensity')
+        keys = ('index', 'cell_size', 'cell_on_border',
+                'BFP_non-saturated_intensity', 'BFP_parallel_intensity', 'BFP_perpendicular_intensity',
+                'Kate_non-saturated_intensity', 'Kate_parallel_intensity', 'Kate_perpendicular_intensity',
+                'Cit_non-saturated_intensity', 'Cit_parallel_intensity', 'Cit_perpendicular_intensity')
         data = {}
         for g, dg in results.groupby(['date', 'position']):
-            with Anisotropy(dg=files.loc[g].reset_index().to_dict('index')) as ani:
+            with CellCurves(dg=files.loc[g].reset_index().to_dict('index')) as ani:
                 for label in dg.label:
                     for key in keys:
                         data[f'{g[0]}_{g[1]}_{label}_{key}'] = ani.npz[f'{label}_{key}']
