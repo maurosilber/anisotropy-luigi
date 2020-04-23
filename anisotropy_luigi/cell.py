@@ -277,11 +277,11 @@ class AnisotropyJumps(DirectoryParams, RelativeChannelParams, luigi.Task):
     def jump_filter(cell_size, anisotropy, size):
         data = pd.DataFrame()
         data['size_median'] = median_filter(cell_size, size=size)
-        data['size_change'] = np.exp(np.log(data.size_median).diff(size))
+        data['size_change'] = np.exp(-np.log(data.size_median).rolling(size, center=True).apply(stats.iqr, raw=True))
         data['median'] = median_filter(anisotropy, size=size)
         data['mad'] = 1.4826 * median_filter(np.abs(anisotropy - data['median']), size=size)
-        data['diff'] = data['median'].diff(size)
-        data['z_score'] = data['diff'] / np.sqrt((data['mad'] ** 2).rolling(size).sum())
+        data['diff'] = data['median'].rolling(size, center=True).apply(stats.iqr, raw=True)
+        data['z_score'] = data['diff'] / data['mad'].rolling(size, center=True).median()
         return data
 
     def discriminator(self, diff, z_score, size_change, border):
@@ -319,3 +319,35 @@ class JumpCurves(DirectoryParams, luigi.Task):
                     for key in keys:
                         data[f'{g[0]}_{g[1]}_{label}_{key}'] = ani.npz[f'{label}_{key}']
         self.output().save(**data)
+
+
+class CellJumpCurves:
+    def __init__(self, npz, date, position, label):
+        self.npz = npz
+        self.prefix = f'{date}_{position}_{label}'
+
+    def time(self):
+        return self.npz[f'{self.prefix}_index']
+
+    def cell_size(self):
+        return self.npz[f'{self.prefix}_cell_size']
+
+    def cell_on_border(self):
+        return self.npz[f'{self.prefix}_cell_on_border']
+
+    def intensity(self, polarization, fluorophore):
+        return self.npz[f'{self.prefix}_{fluorophore}_{polarization}_intensity']
+
+    def non_saturated_size(self, fluorophore):
+        return self.npz[f'{self.prefix}_{fluorophore}_non-saturated_intensity']
+
+    def total_intensity(self, fluorophore):
+        return anifuncs.total_intensity(self.intensity('parallel', fluorophore),
+                                        self.intensity('perpendicular', fluorophore))
+
+    def mean_intensity(self, fluorophore):
+        return self.total_intensity(fluorophore) / self.cell_size()
+
+    def anisotropy(self, fluorophore):
+        return anifuncs.anisotropy_from_intensity(self.intensity('parallel', fluorophore),
+                                                  self.intensity('perpendicular', fluorophore))
