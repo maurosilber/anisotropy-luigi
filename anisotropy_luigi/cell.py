@@ -69,6 +69,8 @@ class Intensities(DirectoryParams, RelativeChannelParams, luigi.Task):
             intensities[(fp, 'non-saturated')] = np.empty((len(tracked_labels), labels.size))
             intensities[(fp, 'parallel')] = np.empty((len(tracked_labels), labels.size))
             intensities[(fp, 'perpendicular')] = np.empty((len(tracked_labels), labels.size))
+            intensities[(fp, 'parallel_var')] = np.empty((len(tracked_labels), labels.size))
+            intensities[(fp, 'perpendicular_var')] = np.empty((len(tracked_labels), labels.size))
             ims_par, ims_per = v['parallel'], v['perpendicular']
             with ims_par, ims_per:
                 for i, (im_par, im_per, tracked_label) in enumerate(zip(ims_par, ims_per, tracked_labels)):
@@ -81,6 +83,9 @@ class Intensities(DirectoryParams, RelativeChannelParams, luigi.Task):
                     # Sum non saturated intensities
                     intensities[(fp, 'parallel')][i] = ndimage.sum(im_par.filled(0), tracked_label, labels)
                     intensities[(fp, 'perpendicular')][i] = ndimage.sum(im_per.filled(0), tracked_label, labels)
+                    intensities[(fp, 'parallel_var')][i] = ndimage.variance(im_par.filled(0), tracked_label, labels)
+                    intensities[(fp, 'perpendicular_var')][i] = ndimage.variance(im_per.filled(0), tracked_label,
+                                                                                 labels)
 
         data = {'labels': labels}
         for i, (label, cell_size) in enumerate(zip(labels, cell_sizes.T)):
@@ -122,18 +127,20 @@ class CellCurves(luigi.WrapperTask, DirectoryParams, RelativeChannelParams):
     def cell_on_border(self, label):
         return self.npz[f'{label}_cell_on_border']
 
-    def intensity(self, polarization, fluorophore, label):
+    def intensity(self, polarization, fluorophore, label, variance=False):
+        if variance:
+            polarization = f'{polarization}_var'
         return self.npz[f'{label}_{fluorophore}_{polarization}_intensity']
 
     def non_saturated_size(self, fluorophore, label):
         return self.npz[f'{label}_{fluorophore}_non-saturated_intensity']
 
-    def total_intensity(self, fluorophore, label):
-        return anifuncs.total_intensity(self.intensity('parallel', fluorophore, label),
-                                        self.intensity('perpendicular', fluorophore, label))
+    def total_intensity(self, fluorophore, label, variance=False):
+        return anifuncs.total_intensity(self.intensity('parallel', fluorophore, label, variance=variance),
+                                        self.intensity('perpendicular', fluorophore, label, variance=variance))
 
-    def mean_intensity(self, fluorophore, label):
-        return self.total_intensity(fluorophore, label) / self.cell_size(label)
+    def mean_intensity(self, fluorophore, label, variance=False):
+        return self.total_intensity(fluorophore, label, variance=variance) / self.cell_size(label)
 
     def anisotropy(self, fluorophore, label):
         return anifuncs.anisotropy_from_intensity(self.intensity('parallel', fluorophore, label),
@@ -185,6 +192,10 @@ class CellsSummary(DirectoryParams, RelativeChannelParams, luigi.Task):
                         data[f'{fp}_length'] = np.sum(curves.non_saturated_size(fp, label) > 0)
                         data[f'{fp}_total_intensity'] = np.median(curves.total_intensity(fp, label))
                         data[f'{fp}_mean_intensity'] = np.median(curves.mean_intensity(fp, label))
+                        data[f'{fp}_total_intensity_variance'] = np.median(
+                            curves.total_intensity(fp, label, variance=True))
+                        data[f'{fp}_mean_intensity_variance'] = np.median(
+                            curves.mean_intensity(fp, label, variance=True))
                         anisotropy = curves.anisotropy(fp, label)
                         data[f'{fp}_anisotropy_min'] = np.min(anisotropy)
                         data[f'{fp}_anisotropy_max'] = np.max(anisotropy)
@@ -335,18 +346,20 @@ class CellJumpCurves:
     def cell_on_border(self):
         return self.npz[f'{self.prefix}_cell_on_border']
 
-    def intensity(self, polarization, fluorophore):
+    def intensity(self, polarization, fluorophore, variance=False):
+        if variance:
+            polarization = f'{polarization}_var'
         return self.npz[f'{self.prefix}_{fluorophore}_{polarization}_intensity']
 
     def non_saturated_size(self, fluorophore):
         return self.npz[f'{self.prefix}_{fluorophore}_non-saturated_intensity']
 
-    def total_intensity(self, fluorophore):
-        return anifuncs.total_intensity(self.intensity('parallel', fluorophore),
-                                        self.intensity('perpendicular', fluorophore))
+    def total_intensity(self, fluorophore, variance=False):
+        return anifuncs.total_intensity(self.intensity('parallel', fluorophore, variance=variance),
+                                        self.intensity('perpendicular', fluorophore, variance=variance))
 
-    def mean_intensity(self, fluorophore):
-        return self.total_intensity(fluorophore) / self.cell_size()
+    def mean_intensity(self, fluorophore, variance=False):
+        return self.total_intensity(fluorophore, variance=variance) / self.cell_size()
 
     def anisotropy(self, fluorophore):
         return anifuncs.anisotropy_from_intensity(self.intensity('parallel', fluorophore),
