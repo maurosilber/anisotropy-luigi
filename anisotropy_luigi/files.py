@@ -121,6 +121,8 @@ class Files(DirectoryParams, luigi.Task):
                 position, rest = parsed
                 if rest in martin_to_agus:
                     rest = martin_to_agus[rest]
+                elif rest in klaus_to_agus:
+                    rest = klaus_to_agus[rest]
                 fluorophore, polarization = parse.parse("{}_{}", rest)
 
             date = file.parent.stem
