@@ -3,7 +3,7 @@ import numpy as np
 from cellment import functions, multi_threshold_segmentation
 from donkeykong.target import LocalNpy
 from luigi.util import delegates
-from skimage.segmentation import relabel_from_one
+from skimage.segmentation import relabel_sequential
 
 from .image import CorrectedImage, CorrectedBackground
 from .parameters import CorrectedImageParams
@@ -31,6 +31,6 @@ class Labels(CorrectedImageParams, luigi.Task):
                 labels[i] = multi_threshold_segmentation(im.data,  # using underlying image data without mask
                                                          (0.7, 0.9, 0.99, 0.999), bg_rv=bg_rv,
                                                          size=self.binary_opening_size)
-                labels[i] = relabel_from_one(labels[i])
+                labels[i] = relabel_sequential(labels[i])[0]
         dtype = np.min_scalar_type(labels.max())
         self.output().save(labels.astype(dtype, copy=False))
