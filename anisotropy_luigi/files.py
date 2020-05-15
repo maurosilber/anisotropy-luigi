@@ -94,7 +94,8 @@ sensor_data = pd.DataFrame(
     {"fluorophore": ["Cit", "BFP", "Kate"], "delta_brightness": [0.17, 0.15, -0.15]}
 ).set_index("fluorophore")
 
-exclude = {"20181024": (8,)}
+exclude = {"20181024": (8,),
+           "20131109": (14,)}
 
 
 class Files(DirectoryParams, luigi.Task):
