@@ -1,6 +1,5 @@
 import luigi
 import numpy as np
-from cellment import functions, multi_threshold_segmentation
 from donkeykong.target import LocalNpy
 from luigi.util import delegates
 from skimage.segmentation import relabel_sequential
@@ -24,13 +23,13 @@ class Labels(CorrectedImageParams, luigi.Task):
         return LocalNpy(self.to_results_file('.labels.npy'))
 
     def run(self):
-        with self.subtasks()['image'] as ims, self.input()['background'] as bg_rvs:
-            labels = np.empty(ims.shape, dtype=int)
+        from stardist.models import StarDist2D
+        from csbdeep.utils import normalize
+        model = StarDist2D.from_pretrained('2D_versatile_fluo')
+        
+        with self.subtasks()['image'] as ims:
+            labels = np.empty(ims.shape, dtype=np.uint16)
             for i, im in enumerate(ims):
-                bg_rv = functions.HistogramRV(bg_rvs[str(i)])  # loads background distribution
-                labels[i] = multi_threshold_segmentation(im.data,  # using underlying image data without mask
-                                                         (0.7, 0.9, 0.99, 0.999), bg_rv=bg_rv,
-                                                         size=self.binary_opening_size)
-                labels[i] = relabel_sequential(labels[i])[0]
+                labels[i] = model.predict_instances(normalize(im.data))[0]
         dtype = np.min_scalar_type(labels.max())
         self.output().save(labels.astype(dtype, copy=False))

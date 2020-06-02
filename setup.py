@@ -9,5 +9,5 @@ setup(
     author='Mauro Silberberg',
     author_email='maurosilber@gmail.com',
     install_requires=['donkeykong', 'tifffile', 'cellment', 'anisotropy', 'pandas', 'parse', 'numpy',
-                      'scipy', 'scikit-image', 'scikit-learn']
+                      'scipy', 'scikit-image', 'scikit-learn', 'stardist']
 )
