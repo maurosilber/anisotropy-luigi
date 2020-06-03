@@ -28,7 +28,7 @@ class Labels(CorrectedImageParams, luigi.Task):
         from csbdeep.utils import normalize
         model = StarDist2D.from_pretrained('2D_versatile_fluo')
         
-        with self.subtasks()['image'] as ims:
+        with self.subtasks()['image'] as ims, self.input()['background'] as bg_rvs:
             labels = np.empty(ims.shape, dtype=np.uint16)
             for i, im in enumerate(ims):
                 bg_rv = HistogramRV(bg_rvs[str(i)])  # loads background distribution
