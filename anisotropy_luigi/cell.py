@@ -271,7 +271,7 @@ class AnisotropyJumps(DirectoryParams, RelativeChannelParams, luigi.Task):
                         jump_row[f'{fp}_jump_diff'] = d['diff'].loc[ix]
                         jump_row[f'{fp}_jump_z_score'] = d['z_score'][ix]
                         jump_row[f'{fp}_jump_time'] = time[ix]
-                    except ValueError:  # All-NaN slices
+                    except (ValueError, TypeError):  # All-NaN slices or ix=NaN
                         for key in ('max', 'min', 'diff', 'z_score', 'time'):
                             jump_row[f'{fp}_jump_{key}'] = np.nan
 
