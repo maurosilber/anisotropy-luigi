@@ -14,7 +14,7 @@ class AgusDF(CellsSummary):
         df = []
         for curves in self.requires():
             row = next(iter(curves.dg.values()))
-            group_data = {key: row[key] for key in ("date", "position")}
+            group_data = {key: row[key] for key in ("date", "position", "time_steps")}
             with curves:
                 for label in curves.labels:
                     data = {
@@ -52,6 +52,7 @@ class AgusDF(CellsSummary):
                     cell_size = curves.cell_size(label)
                     data["area"] = cell_size
                     data["frame"] = np.arange(cell_size.size)
+                    data["time"] = data["frame"] * data["time_steps"]
 
                     data["length"] = max(
                         data[f"{fp}_length"] for fp in curves.fluorophores
