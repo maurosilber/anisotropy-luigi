@@ -17,7 +17,7 @@ class AgusDF(CellsSummary):
             group_data = {key: row[key] for key in ("date", "position", "time_steps")}
             with curves:
                 for label in curves.labels:
-                    data = {
+                    row = {
                         **group_data,
                         "label": label,
                         "cell_size": np.median(curves.cell_size(label)),
@@ -25,39 +25,23 @@ class AgusDF(CellsSummary):
                     }
 
                     for fp in curves.fluorophores:
-                        data[f"{fp}_length"] = np.sum(
-                            curves.non_saturated_size(fp, label) > 0
+                        row[f"{fp}_non_saturated_area"] = curves.non_saturated_size(
+                            fp, label
                         )
-                        data[f"{fp}_total_intensity"] = np.median(
-                            curves.total_intensity(fp, label)
-                        )
-                        data[f"{fp}_mean_intensity"] = np.median(
-                            curves.mean_intensity(fp, label)
-                        )
-                        data[f"{fp}_total_intensity_variance"] = np.median(
-                            curves.total_intensity(fp, label, variance=True)
-                        )
-                        data[f"{fp}_mean_intensity_variance"] = np.median(
-                            curves.mean_intensity(fp, label, variance=True)
-                        )
+                        row[f"{fp}_total_intensity"] = curves.total_intensity(fp, label)
+                        row[f"{fp}_mean_intensity"] = curves.mean_intensity(fp, label)
 
                         anisotropy = curves.anisotropy(fp, label)
-                        data[f"{fp}_anisotropy_min"] = np.min(anisotropy)
-                        data[f"{fp}_anisotropy_max"] = np.max(anisotropy)
-                        data[f"{fp}_anisotropy_median"] = np.median(anisotropy)
-                        data[f"{fp}_anisotropy_iqr"] = stats.iqr(np.diff(anisotropy))
-
-                        # Agus
-                        data[f"{fp}_anisotropy"] = anisotropy
+                        row[f"{fp}_anisotropy"] = anisotropy
                     cell_size = curves.cell_size(label)
-                    data["area"] = cell_size
-                    data["frame"] = np.arange(cell_size.size)
-                    data["time"] = data["frame"] * data["time_steps"]
+                    row["area"] = cell_size
+                    row["frame"] = np.arange(cell_size.size)
+                    row["time"] = row["frame"] * row["time_steps"]
 
-                    data["length"] = max(
-                        data[f"{fp}_length"] for fp in curves.fluorophores
+                    row["length"] = max(
+                        np.sum(row[f"{fp}_non_saturated_area"] > 0) for fp in curves.fluorophores
                     )
-                    df.append(data)
+                    df.append(row)
 
         df = pd.DataFrame(df)
         self.output().save(df)
